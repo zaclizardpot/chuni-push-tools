@@ -580,7 +580,7 @@ function renderSummary(result) {
     ["最低推分定數", s.minUsefulConstant.toFixed(1)],
     ["穩定上限", s.stableUpperConstant.toFixed(1)],
     ["挑戰上限", s.challengeUpperConstant.toFixed(1)],
-    ["保險上限", s.insuranceUpperConstant.toFixed(1)],
+    ["上限保險", s.insuranceUpperConstant.toFixed(1)],
     ["最高推薦定數", s.maxUsefulConstant.toFixed(1)],
     ["入選歌曲", s.selectedCount],
     ["成功匹配資料庫", s.matchedSelectedCount],
@@ -660,11 +660,24 @@ function cleanText(text) {
 }
 
 function normalizeSongName(text) {
-  return cleanText(text)
+  let s = cleanText(text)
     .toLowerCase()
-    .replace(/[‐-‒–—―ーｰ]/g, "-")
-    .replace(/\s+/g, " ")
+    .normalize("NFKC")
+    .replace(/[‐-‒–—―－ーｰ]/g, "-")
+    .replace(/[：:]/g, ":")
+    .replace(/[！!]/g, "!")
+    .replace(/[？?]/g, "?")
+    .replace(/[～~〜]/g, "~")
+    .replace(/[「」『』【】\[\]（）()]/g, "")
+    .replace(/\s+/g, "")
+    .replace(/[・･]/g, "")
+    .replace(/[＿_]/g, "")
+    .replace(/[.,，、]/g, "")
     .trim();
+
+  s = s.replace(/-/g, "");
+
+  return SONG_ALIASES.get(s) || s;
 }
 
 function normalizeDifficulty(text) {
