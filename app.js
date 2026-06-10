@@ -1,4 +1,4 @@
-const APP_VERSION = "v0.1.6";
+const APP_VERSION = "v0.1.7";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
@@ -28,7 +28,7 @@ $("analyzeBtn").addEventListener("click", analyze);
 $("downloadResultBtn").addEventListener("click", () => {
   if (lastRecommendations.length === 0) return;
   const rows = [
-    ["排名", "推薦區間", "歌名", "難度", "譜面定數", "推薦分數", "主分類", "副分類", "技巧標籤", "玩家已有成績", "推薦理由"],
+    ["排名", "推薦區間", "歌名", "難度", "譜面定數", "推薦分數", "主分類", "副分類", "技巧標籤", "玩家已有成績", "目標成績", "推薦理由"],
     ...lastRecommendations.map((r, i) => [
       i + 1,
       r.recommendZone,
@@ -40,6 +40,7 @@ $("downloadResultBtn").addEventListener("click", () => {
       r.subTypesText,
       r.skillTags,
       r.playerRecordText,
+      r.targetScoreText,
       r.reason
     ])
   ];
@@ -359,12 +360,26 @@ function runAnalysis(scoreRows, chartRows, settings) {
     ? autoChallengeMaxConstant
     : roundToOne(settings.challengeMaxConstant);
 
+  if (targetPushConstant != null && targetPushConstant < minUsefulConstant) {
+    throw new Error(
+      `目標推分定數不可小於最低推分定數。\n` +
+      `目前最低推分定數是 ${minUsefulConstant.toFixed(1)}，你輸入的是 ${targetPushConstant.toFixed(1)}。`
+    );
+  }
+  
+  if (challengeMinConstant < comfortConstant || challengeMaxConstant < comfortConstant) {
+    throw new Error(
+      `挑戰定數不可小於舒適定數。\n` +
+      `目前舒適定數是 ${comfortConstant.toFixed(1)}，請把挑戰定數範圍設定在 ${comfortConstant.toFixed(1)} 以上。`
+    );
+  }
+  
   if (challengeMinConstant < minUsefulConstant) {
     challengeMinConstant = minUsefulConstant;
   }
-
+  
   if (challengeMaxConstant < challengeMinConstant) {
-    challengeMaxConstant = challengeMinConstant;
+    throw new Error("挑戰定數下限不能大於挑戰定數上限。");
   }
 
   const selectedScores = sortedScores
@@ -437,8 +452,9 @@ function runAnalysis(scoreRows, chartRows, settings) {
       }
 
       const playerRecord = findPlayerRecordForChart(chart, playerRecordIndex);
+      const targetScore = calculateRequiredScoreForRating(chart.constant, all30Rating);
       const reason = buildReason(chart, typeMatch, recommendZone);
-
+      
       return {
         ...chart,
         recommendScore,
@@ -446,6 +462,8 @@ function runAnalysis(scoreRows, chartRows, settings) {
         typeMatchScore: typeMatch.score,
         playerRecord,
         playerRecordText: formatPlayerRecord(playerRecord),
+        targetScore,
+        targetScoreText: formatTargetScore(targetScore),
         reason
       };
     });
@@ -900,7 +918,7 @@ function renderSummary(result) {
   const targetText = s.targetPushConstant == null
     ? "未使用"
     : s.targetPushConstant.toFixed(1);
-
+  
   const mainRangeText = `${s.mainRecommendMinConstant.toFixed(1)} ～ ${s.mainRecommendMaxConstant.toFixed(1)}`;
   const challengeRangeText = `${s.challengeMinConstant.toFixed(1)} ～ ${s.challengeMaxConstant.toFixed(1)}`;
 
@@ -912,10 +930,8 @@ function renderSummary(result) {
     ["最低推分定數", s.minUsefulConstant.toFixed(1)],
     ["舒適定數", s.comfortConstant.toFixed(1)],
     ["主推定數範圍", mainRangeText],
-    ["自動目標推分定數", s.autoTargetPushConstant.toFixed(1)],
-    ["目前目標推分定數", targetText],
-    ["自動挑戰範圍", `${s.autoChallengeMinConstant.toFixed(1)} ～ ${s.autoChallengeMaxConstant.toFixed(1)}`],
-    ["目前挑戰範圍", challengeRangeText],
+    ["目標推分定數", targetText],
+    ["挑戰定數範圍", challengeRangeText],
     ["入選歌曲", s.selectedCount],
     ["成功匹配資料庫", s.matchedSelectedCount],
     ["有用歌曲數", s.usefulChartCount],
@@ -978,6 +994,7 @@ function renderRecommendationRows(recommendations) {
       <td class="tags">${escapeHtml(r.subTypesText)}</td>
       <td class="tags">${escapeHtml(r.skillTags || "")}</td>
       <td>${escapeHtml(r.playerRecordText)}</td>
+      <td>${escapeHtml(r.targetScoreText)}</td>
       <td class="reason">${escapeHtml(r.reason)}</td>
     </tr>
   `).join("");
@@ -986,6 +1003,60 @@ function renderRecommendationRows(recommendations) {
 function formatPlayerRecord(record) {
   if (!record) return "";
   return `${record.score.toLocaleString()} / ${record.rating.toFixed(2)}${record.grade ? " / " + record.grade : ""}`;
+}
+
+function calculateRequiredScoreForRating(constant, targetRating) {
+  if (!Number.isFinite(constant) || !Number.isFinite(targetRating)) {
+    return null;
+  }
+
+  const diff = targetRating - constant;
+
+  // Rating 不可能靠這首推到這麼低，理論上打到 S 以下就夠，但本工具只回傳 S 以上範圍
+  if (diff <= 0) return 975000;
+
+  let score = null;
+
+  // S：975000 ～ 989999，rating 約 constant ～ constant + 0.5
+  if (diff <= 0.5) {
+    score = 975000 + diff / 0.5 * 15000;
+  }
+  // S+：990000 ～ 999999，rating 約 constant + 0.5 ～ constant + 1.0
+  else if (diff <= 1.0) {
+    score = 990000 + (diff - 0.5) / 0.5 * 10000;
+  }
+  // SS：1000000 ～ 1004999，rating 約 constant + 1.0 ～ constant + 1.5
+  else if (diff <= 1.5) {
+    score = 1000000 + (diff - 1.0) / 0.5 * 5000;
+  }
+  // SS+：1005000 ～ 1007499，rating 約 constant + 1.5 ～ constant + 2.0
+  else if (diff <= 2.0) {
+    score = 1005000 + (diff - 1.5) / 0.5 * 2500;
+  }
+  // SSS：1007500 ～ 1008999，rating 約 constant + 2.0 ～ constant + 2.15
+  else if (diff <= 2.15) {
+    score = 1007500 + (diff - 2.0) / 0.15 * 1500;
+  }
+  // SSS+：1009000 ～ 1010000，rating 約 constant + 2.15 ～ constant + 2.30
+  else if (diff <= 2.30) {
+    score = 1009000 + (diff - 2.15) / 0.15 * 1000;
+  } else {
+    return null;
+  }
+
+  return Math.ceil(score / 10) * 10;
+}
+
+function formatTargetScore(score) {
+  if (score == null || !Number.isFinite(score)) {
+    return "超出可推範圍";
+  }
+
+  if (score > 1010000) {
+    return "超出可推範圍";
+  }
+
+  return Math.round(score).toLocaleString();
 }
 
 function splitLabels(text) {
