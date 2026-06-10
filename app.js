@@ -1,4 +1,4 @@
-const APP_VERSION = "v0.1.10";
+const APP_VERSION = "v0.1.11";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
