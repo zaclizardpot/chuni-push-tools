@@ -1,4 +1,4 @@
-const APP_VERSION = "v0.1.7";
+const APP_VERSION = "v0.1.8";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
@@ -418,7 +418,9 @@ function runAnalysis(scoreRows, chartRows, settings) {
       const typeMatch = calculateChartTypeMatch(chart, typeStats);
       const confidenceScore = typeMatch.confidence;
       const risk = calculateRiskPenalty(chart, typeStats);
-
+      const playerRecord = findPlayerRecordForChart(chart, playerRecordIndex);
+      const provenBonus = calculateProvenPerformanceBonus(playerRecord, all30Rating);
+      
       const recommendZone = (
         chart.constant >= challengeMinConstant &&
         chart.constant <= challengeMaxConstant
@@ -431,29 +433,31 @@ function runAnalysis(scoreRows, chartRows, settings) {
           const targetFit = calculateProgressionFit(chart.constant, targetPushConstant);
 
           recommendScore = Math.max(0, Math.min(100,
-            typeMatch.score * 65 +
-            confidenceScore * 15 +
-            targetFit * 20 -
+            typeMatch.score * 62 +
+            confidenceScore * 13 +
+            targetFit * 20 +
+            provenBonus -
             risk
           ));
         } else {
           recommendScore = Math.max(0, Math.min(100,
-            typeMatch.score * 80 +
-            confidenceScore * 20 -
+            typeMatch.score * 75 +
+            confidenceScore * 17 +
+            provenBonus -
             risk
           ));
         }
       } else {
         recommendScore = Math.max(0, Math.min(100,
-          typeMatch.score * 80 +
-          confidenceScore * 20 -
+          typeMatch.score * 75 +
+          confidenceScore * 17 +
+          provenBonus -
           risk
         ));
       }
-
-      const playerRecord = findPlayerRecordForChart(chart, playerRecordIndex);
+      
       const targetScore = calculateRequiredScoreForRating(chart.constant, all30Rating);
-      const reason = buildReason(chart, typeMatch, recommendZone);
+      const reason = buildReason(chart, typeMatch, recommendZone, playerRecord);
       
       return {
         ...chart,
@@ -884,14 +888,22 @@ function calculateRiskPenalty(chart, typeStats) {
   return risk;
 }
 
-function buildReason(chart, typeMatch, recommendZone = "") {
+function buildReason(chart, typeMatch, recommendZone = "", playerRecord = null) {
   const zoneText = recommendZone ? `${recommendZone}區間；` : "";
 
+  let reason = "";
+
   if (typeMatch.matchedTypes.length === 0) {
-    return `${zoneText}分類參考：${chart.mainType} / ${chart.subTypesText}`;
+    reason = `${zoneText}分類參考：${chart.mainType} / ${chart.subTypesText}`;
+  } else {
+    reason = `${zoneText}符合高分池類型：${typeMatch.matchedTypes.slice(0, 3).join("、")}`;
   }
 
-  return `${zoneText}符合高分池類型：${typeMatch.matchedTypes.slice(0, 3).join("、")}`;
+  if (playerRecord && playerRecord.score >= 1005000) {
+    reason += "；已有不錯成績紀錄";
+  }
+
+  return reason;
 }
 
 function renderAll(result) {
@@ -916,9 +928,9 @@ function renderSummary(result) {
   const s = result.summary;
 
   const targetText = s.targetPushConstant == null
-    ? "未使用"
-    : s.targetPushConstant.toFixed(1);
-  
+    ? `${s.autoTargetPushConstant.toFixed(1)}`
+    : `${s.targetPushConstant.toFixed(1)}`;
+    
   const mainRangeText = `${s.mainRecommendMinConstant.toFixed(1)} ～ ${s.mainRecommendMaxConstant.toFixed(1)}`;
   const challengeRangeText = `${s.challengeMinConstant.toFixed(1)} ～ ${s.challengeMaxConstant.toFixed(1)}`;
 
@@ -1003,6 +1015,32 @@ function renderRecommendationRows(recommendations) {
 function formatPlayerRecord(record) {
   if (!record) return "";
   return `${record.score.toLocaleString()} / ${record.rating.toFixed(2)}${record.grade ? " / " + record.grade : ""}`;
+}
+
+function calculateProvenPerformanceBonus(record, all30Rating) {
+  if (!record) return 0;
+
+  let bonus = 0;
+
+  // 已有成績只做小補正，避免單曲特例或代打影響整體推薦。
+  if (record.score >= 1006000) {
+    bonus += 2;
+  } else if (record.score >= 1005000) {
+    bonus += 1;
+  } else if (record.score >= 1000000) {
+    bonus += 0.5;
+  }
+
+  // 已經接近 All30，代表這首至少有推分潛力，但仍只給小補正。
+  if (Number.isFinite(record.rating) && Number.isFinite(all30Rating)) {
+    if (record.rating >= all30Rating) {
+      bonus += 1;
+    } else if (record.rating >= all30Rating - 0.1) {
+      bonus += 0.5;
+    }
+  }
+
+  return Math.min(bonus, 3);
 }
 
 function calculateRequiredScoreForRating(constant, targetRating) {
