@@ -1,4 +1,4 @@
-const APP_VERSION = "v0.1.11";
+const APP_VERSION = "v0.1.11-t";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
@@ -1055,7 +1055,7 @@ function calculateTypeDeviations(typeStats) {
     }
 
     const rawDeviation = s.typeScore - avgScore;
-    const deviation = clamp(rawDeviation / scale, -3, 3);//多角圖的上下限
+    const deviation = clamp(rawDeviation / scale, -2.5, 2.5);//分類偏差值的上下限
 
     return {
       ...s,
