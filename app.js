@@ -909,6 +909,7 @@ function buildReason(chart, typeMatch, recommendZone = "", playerRecord = null) 
 function renderAll(result) {
   renderSummary(result);
   renderTypeTable(result.typeStats);
+  renderTypeRadar(result.typeStats);
 
   const mainRecommendations = result.recommendations.filter(r => r.recommendZone === "主推");
   const challengeRecommendations = result.recommendations.filter(r => r.recommendZone === "挑戰");
