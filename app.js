@@ -1,3 +1,6 @@
+const APP_VERSION = "v0.1.1";
+console.log("CHUNI PUSH TOOL", APP_VERSION);
+
 const DB_FILE = "./chart_database.csv";
 
 const EXCLUDED_TYPES = new Set(["標準", "全體難", "最後不能鬆懈"]);
