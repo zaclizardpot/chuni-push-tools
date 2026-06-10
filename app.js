@@ -10,12 +10,13 @@ $("analyzeBtn").addEventListener("click", analyze);
 $("downloadResultBtn").addEventListener("click", () => {
   if (lastRecommendations.length === 0) return;
   const rows = [
-    ["排名", "歌名", "難度", "譜面定數", "推薦分數", "主分類", "副分類", "技巧標籤", "玩家已有成績", "推薦理由"],
+    ["排名", "歌名", "難度", "譜面定數", "推薦區間", "推薦分數", "主分類", "副分類", "技巧標籤", "玩家已有成績", "推薦理由"],
     ...lastRecommendations.map((r, i) => [
       i + 1,
       r.song,
       r.difficulty,
       r.constant,
+      r.recommendZone,
       r.recommendScore.toFixed(2),
       r.mainType,
       r.subTypesText,
@@ -169,7 +170,9 @@ function parseCsv(text) {
 }
 
 function normalizeScoreRows(rows) {
-  return rows.map(row => {
+  const allSectionRows = extractAllSectionRows(rows);
+
+  return allSectionRows.map(row => {
     const song = row["曲名"] || row["title"] || row["song"] || "";
     const constant = toNumber(row["譜面定數"] || row["定數"] || row["constant"]);
     const score = Math.trunc(toNumber(row["成績"] || row["score"]));
@@ -184,6 +187,29 @@ function normalizeScoreRows(rows) {
       combo: row["AJ/FC"] || row["AJ"] || row["combo"] || ""
     };
   }).filter(r => r.song && Number.isFinite(r.score) && Number.isFinite(r.rating));
+}
+
+function extractAllSectionRows(rows) {
+  const result = [];
+  let seenFirstRankOne = false;
+
+  for (const row of rows) {
+    const rankText = cleanText(row["排名"] || row["#"] || row["rank"] || "");
+    const rank = Number(rankText);
+
+    if (rank === 1) {
+      if (seenFirstRankOne && result.length > 0) {
+        break;
+      }
+      seenFirstRankOne = true;
+    }
+
+    if (seenFirstRankOne) {
+      result.push(row);
+    }
+  }
+
+  return result.length > 0 ? result : rows;
 }
 
 function normalizeChartRows(rows) {
@@ -210,7 +236,17 @@ function runAnalysis(scoreRows, chartRows, settings) {
   const sortedScores = [...scoreRows].sort((a, b) => b.rating - a.rating);
   const top30 = sortedScores.slice(0, 30);
   const all30Rating = top30.length >= 30 ? top30[29].rating : sortedScores[sortedScores.length - 1].rating;
+
   const minUsefulConstant = roundToOne(all30Rating - settings.ratingOffset);
+
+  const stableUpperConstant = calculateStableUpperConstant(sortedScores, all30Rating);
+  const challengeUpperConstant = roundToOne(stableUpperConstant + 0.2);
+  const insuranceUpperConstant = roundToOne(all30Rating - 1.0);
+  let maxUsefulConstant = roundToOne(Math.min(challengeUpperConstant, insuranceUpperConstant));
+
+  if (maxUsefulConstant < minUsefulConstant) {
+    maxUsefulConstant = minUsefulConstant;
+  }
 
   const selectedScores = sortedScores
     .slice(0, settings.sampleSize)
@@ -230,35 +266,49 @@ function runAnalysis(scoreRows, chartRows, settings) {
   }
 
   const typeStats = calculateTypeStats(selectedWithCharts, all30Rating);
-  const usefulCharts = chartRows.filter(c => Number.isFinite(c.constant) && c.constant >= minUsefulConstant);
+
+  const usefulCharts = chartRows.filter(c =>
+    Number.isFinite(c.constant) &&
+    c.constant >= minUsefulConstant &&
+    c.constant <= maxUsefulConstant
+  );
+
   const playerRecordIndex = buildPlayerRecordIndex(scoreRows);
 
   const recommendations = usefulCharts.map(chart => {
     const typeMatch = calculateChartTypeMatch(chart, typeStats);
-    const potential = clamp((chart.constant - minUsefulConstant) / 0.7, 0, 1);
+    const potential = clamp((chart.constant - minUsefulConstant) / Math.max(0.1, maxUsefulConstant - minUsefulConstant), 0, 1);
     const confidenceScore = typeMatch.confidence;
     const risk = calculateRiskPenalty(chart, typeStats);
 
+    const recommendZone = chart.constant <= stableUpperConstant ? "主推" : "挑戰";
+
     const recommendScore = Math.max(0, Math.min(100,
-      potential * 45 +
-      typeMatch.score * 45 +
-      confidenceScore * 10 -
+      potential * 35 +
+      typeMatch.score * 50 +
+      confidenceScore * 15 -
       risk
     ));
 
     const playerRecord = findPlayerRecordForChart(chart, playerRecordIndex);
-    const reason = buildReason(chart, typeMatch);
+    const reason = buildReason(chart, typeMatch, recommendZone);
 
     return {
       ...chart,
       recommendScore,
+      recommendZone,
       typeMatchScore: typeMatch.score,
       playerRecord,
       playerRecordText: formatPlayerRecord(playerRecord),
       reason
     };
   })
-  .sort((a, b) => b.recommendScore - a.recommendScore)
+  .sort((a, b) => {
+    if (a.recommendZone !== b.recommendZone) {
+      return a.recommendZone === "主推" ? -1 : 1;
+    }
+    return b.recommendScore - a.recommendScore;
+  })
   .slice(0, settings.recommendCount);
 
   return {
@@ -275,11 +325,44 @@ function runAnalysis(scoreRows, chartRows, settings) {
       chartCount: chartRows.length,
       all30Rating,
       minUsefulConstant,
+      stableUpperConstant,
+      challengeUpperConstant,
+      insuranceUpperConstant,
+      maxUsefulConstant,
       selectedCount: selectedScores.length,
       matchedSelectedCount: selectedWithCharts.length,
       usefulChartCount: usefulCharts.length
     }
   };
+}
+
+function calculateStableUpperConstant(sortedScores, all30Rating) {
+  const threshold = 1005000;
+  const minCount = 3;
+
+  const eligible = sortedScores
+    .filter(r => Number.isFinite(r.constant) && r.score >= threshold)
+    .map(r => ({
+      constant: roundToOne(r.constant),
+      song: r.song,
+      score: r.score
+    }));
+
+  if (eligible.length < minCount) {
+    return roundToOne(all30Rating - 1.5);
+  }
+
+  const candidateConstants = [...new Set(eligible.map(r => r.constant))]
+    .sort((a, b) => b - a);
+
+  for (const c of candidateConstants) {
+    const count = eligible.filter(r => r.constant >= c).length;
+    if (count >= minCount) {
+      return c;
+    }
+  }
+
+  return roundToOne(all30Rating - 1.5);
 }
 
 function buildChartIndex(chartRows) {
@@ -466,11 +549,14 @@ function calculateRiskPenalty(chart, typeStats) {
   return risk;
 }
 
-function buildReason(chart, typeMatch) {
+function buildReason(chart, typeMatch, recommendZone = "") {
+  const zoneText = recommendZone ? `${recommendZone}區間；` : "";
+
   if (typeMatch.matchedTypes.length === 0) {
-    return `分類參考：${chart.mainType} / ${chart.subTypesText}`;
+    return `${zoneText}分類參考：${chart.mainType} / ${chart.subTypesText}`;
   }
-  return `符合高分池類型：${typeMatch.matchedTypes.slice(0, 3).join("、")}`;
+
+  return `${zoneText}符合高分池類型：${typeMatch.matchedTypes.slice(0, 3).join("、")}`;
 }
 
 function renderAll(result) {
@@ -488,10 +574,14 @@ function renderAll(result) {
 function renderSummary(result) {
   const s = result.summary;
   const cards = [
-    ["玩家分表筆數", s.scoreCount],
+    ["玩家 All 筆數", s.scoreCount],
     ["資料庫譜面數", s.chartCount],
     ["All 第 30 名 Rating", s.all30Rating.toFixed(2)],
     ["最低推分定數", s.minUsefulConstant.toFixed(1)],
+    ["穩定上限", s.stableUpperConstant.toFixed(1)],
+    ["挑戰上限", s.challengeUpperConstant.toFixed(1)],
+    ["保險上限", s.insuranceUpperConstant.toFixed(1)],
+    ["最高推薦定數", s.maxUsefulConstant.toFixed(1)],
     ["入選歌曲", s.selectedCount],
     ["成功匹配資料庫", s.matchedSelectedCount],
     ["有用歌曲數", s.usefulChartCount],
@@ -539,6 +629,7 @@ function renderRecommendTable(recommendations) {
       <td><strong>${escapeHtml(r.song)}</strong></td>
       <td>${escapeHtml(r.difficulty)}</td>
       <td>${r.constant.toFixed(1)}</td>
+      <td>${escapeHtml(r.recommendZone)}</td>
       <td class="score">${r.recommendScore.toFixed(1)}</td>
       <td>${escapeHtml(r.mainType)}</td>
       <td class="tags">${escapeHtml(r.subTypesText)}</td>
