@@ -965,17 +965,130 @@ function renderSummary(result) {
 
 function renderTypeTable(typeStats) {
   const tbody = $("typeTable").querySelector("tbody");
-  tbody.innerHTML = typeStats.map((s, i) => `
+  const enriched = calculateTypeDeviations(typeStats);
+
+  tbody.innerHTML = enriched.map((s, i) => `
     <tr>
       <td>${i + 1}</td>
       <td><strong>${escapeHtml(s.type)}</strong></td>
       <td class="score">${s.typeScore.toFixed(1)}</td>
+      <td class="${s.deviation >= 0 ? "good" : "bad"}">${s.deviation.toFixed(2)}</td>
       <td>${Math.round(s.avgScore).toLocaleString()}</td>
       <td>${s.avgRating.toFixed(2)}</td>
       <td>${s.count}</td>
       <td class="tags">${escapeHtml(s.representativeSongs.join("、"))}</td>
     </tr>
   `).join("");
+}
+
+function calculateTypeDeviations(typeStats) {
+  if (!typeStats || typeStats.length === 0) return [];
+
+  const scaled = typeStats.map(s => ({
+    ...s,
+    scaledScore: s.typeScore / 20
+  }));
+
+  const avg = scaled.reduce((sum, s) => sum + s.scaledScore, 0) / scaled.length;
+
+  return scaled.map(s => ({
+    ...s,
+    deviation: clamp(s.scaledScore - avg, -2.5, 2.5)
+  }));
+}
+
+function renderTypeRadar(typeStats) {
+  const svg = $("typeRadar");
+  if (!svg) return;
+
+  const data = calculateTypeDeviations(typeStats);
+
+  if (!data || data.length < 3) {
+    svg.innerHTML = `<text x="360" y="280" text-anchor="middle" class="radar-label">分類資料不足，無法繪製偏差圖</text>`;
+    return;
+  }
+
+  const width = 720;
+  const height = 560;
+  const cx = 360;
+  const cy = 280;
+  const maxRadius = 185;
+  const maxAbs = 2.5;
+  const zeroRadius = maxRadius * 0.5;
+
+  const n = data.length;
+
+  function angleAt(i) {
+    return -Math.PI / 2 + (Math.PI * 2 * i) / n;
+  }
+
+  function pointAt(i, deviation) {
+    const angle = angleAt(i);
+
+    // deviation -2.5～+2.5 映射到 0～maxRadius，中間 0 在 zeroRadius
+    const radius = ((deviation + maxAbs) / (maxAbs * 2)) * maxRadius;
+
+    return {
+      x: cx + Math.cos(angle) * radius,
+      y: cy + Math.sin(angle) * radius
+    };
+  }
+
+  function ringPoints(deviation) {
+    return data.map((_, i) => {
+      const p = pointAt(i, deviation);
+      return `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+    }).join(" ");
+  }
+
+  const polygonPoints = data.map((d, i) => {
+    const p = pointAt(i, d.deviation);
+    return `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+  }).join(" ");
+
+  const rings = [-2.5, -1.25, 0, 1.25, 2.5].map(v => {
+    const cls = v === 0 ? "radar-zero" : "radar-grid";
+    return `<polygon class="${cls}" points="${ringPoints(v)}"></polygon>`;
+  }).join("");
+
+  const axes = data.map((_, i) => {
+    const outer = pointAt(i, 2.5);
+    return `<line class="radar-axis" x1="${cx}" y1="${cy}" x2="${outer.x.toFixed(1)}" y2="${outer.y.toFixed(1)}"></line>`;
+  }).join("");
+
+  const points = data.map((d, i) => {
+    const p = pointAt(i, d.deviation);
+    return `<circle class="radar-point" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4"></circle>`;
+  }).join("");
+
+  const labels = data.map((d, i) => {
+    const angle = angleAt(i);
+    const labelRadius = maxRadius + 42;
+    const x = cx + Math.cos(angle) * labelRadius;
+    const y = cy + Math.sin(angle) * labelRadius;
+
+    const anchor = Math.cos(angle) > 0.25
+      ? "start"
+      : Math.cos(angle) < -0.25
+        ? "end"
+        : "middle";
+
+    const valueY = y + 17;
+
+    return `
+      <text class="radar-label" x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="${anchor}">${escapeHtml(d.type)}</text>
+      <text class="radar-value" x="${x.toFixed(1)}" y="${valueY.toFixed(1)}" text-anchor="${anchor}">${d.deviation.toFixed(2)}</text>
+    `;
+  }).join("");
+
+  svg.innerHTML = `
+    <text x="24" y="34" class="radar-caption">分類偏差值：適性分數 / 20 後，扣掉全分類平均。範圍限制在 -2.50 ～ +2.50。</text>
+    ${rings}
+    ${axes}
+    <polygon class="radar-polygon" points="${polygonPoints}"></polygon>
+    ${points}
+    ${labels}
+  `;
 }
 
 function renderRecommendTable(recommendations) {
