@@ -1,4 +1,4 @@
-const APP_VERSION = "v0.1.8";
+const APP_VERSION = "v0.1.9";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
@@ -928,24 +928,20 @@ function renderSummary(result) {
   const s = result.summary;
 
   const targetText = s.targetPushConstant == null
-    ? `${s.autoTargetPushConstant.toFixed(1)}`
-    : `${s.targetPushConstant.toFixed(1)}`;
-    
+    ? s.autoTargetPushConstant.toFixed(1)
+    : s.targetPushConstant.toFixed(1);
+
   const mainRangeText = `${s.mainRecommendMinConstant.toFixed(1)} ～ ${s.mainRecommendMaxConstant.toFixed(1)}`;
   const challengeRangeText = `${s.challengeMinConstant.toFixed(1)} ～ ${s.challengeMaxConstant.toFixed(1)}`;
 
   const cards = [
-    ["玩家 All 筆數", s.scoreCount],
-    ["資料庫譜面數", s.chartCount],
     ["All 第 1 名 Rating", s.all1Rating.toFixed(2)],
     ["All 第 30 名 Rating", s.all30Rating.toFixed(2)],
     ["最低推分定數", s.minUsefulConstant.toFixed(1)],
     ["舒適定數", s.comfortConstant.toFixed(1)],
     ["主推定數範圍", mainRangeText],
-    ["目標推分定數", targetText],
+    ["目標／舒適推分最頂定數", targetText],
     ["挑戰定數範圍", challengeRangeText],
-    ["入選歌曲", s.selectedCount],
-    ["成功匹配資料庫", s.matchedSelectedCount],
     ["有用歌曲數", s.usefulChartCount],
     ["主推輸出", s.mainRecommendCount],
     ["挑戰輸出", s.challengeRecommendCount]
@@ -961,9 +957,6 @@ function renderSummary(result) {
   const warningItems = [];
   if (result.unmatchedScores.length > 0) {
     warningItems.push(`有 ${result.unmatchedScores.length} 首入選歌曲沒有成功對到資料庫：${result.unmatchedScores.slice(0, 8).map(x => x.song).join("、")}${result.unmatchedScores.length > 8 ? "…" : ""}`);
-  }
-  if (s.matchedSelectedCount < 10) {
-    warningItems.push("成功匹配的入選歌曲偏少，分類適性可能不穩。請檢查歌名是否和資料庫一致。");
   }
 
   $("warnings").innerHTML = warningItems.map(w => `<div class="warning-item">${escapeHtml(w)}</div>`).join("");
