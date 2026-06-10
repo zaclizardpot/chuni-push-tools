@@ -1,9 +1,19 @@
-const APP_VERSION = "v0.1.9";
+const APP_VERSION = "v0.1.10";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
 
 const EXCLUDED_TYPES = new Set(["標準", "全體難", "最後不能鬆懈"]);
+
+const RADAR_TYPES = [
+  "物量譜面",
+  "高速處理",
+  "局部難",
+  "拘束配置",
+  "混合節奏",
+  "視認難",
+  "階段"
+];//如果之後還有新的副分類想放進圖，例如 交叉配置、節奏難，就直接加在這個陣列裡。
 
 const SONG_ALIASES = new Map([
   ["re:end of a dream", "re:end of a dream"],
@@ -965,7 +975,8 @@ function renderSummary(result) {
 
 function renderTypeTable(typeStats) {
   const tbody = $("typeTable").querySelector("tbody");
-  const enriched = calculateTypeDeviations(typeStats);
+  const enriched = calculateTypeDeviations(typeStats)
+    .sort((a, b) => b.typeScore - a.typeScore);
 
   tbody.innerHTML = enriched.map((s, i) => `
     <tr>
@@ -973,28 +984,63 @@ function renderTypeTable(typeStats) {
       <td><strong>${escapeHtml(s.type)}</strong></td>
       <td class="score">${s.typeScore.toFixed(1)}</td>
       <td class="${s.deviation >= 0 ? "good" : "bad"}">${s.deviation.toFixed(2)}</td>
-      <td>${Math.round(s.avgScore).toLocaleString()}</td>
-      <td>${s.avgRating.toFixed(2)}</td>
+      <td>${s.avgScore ? Math.round(s.avgScore).toLocaleString() : "-"}</td>
+      <td>${s.avgRating ? s.avgRating.toFixed(2) : "-"}</td>
       <td>${s.count}</td>
-      <td class="tags">${escapeHtml(s.representativeSongs.join("、"))}</td>
+      <td class="tags">${escapeHtml((s.representativeSongs || []).join("、"))}</td>
     </tr>
   `).join("");
 }
 
 function calculateTypeDeviations(typeStats) {
-  if (!typeStats || typeStats.length === 0) return [];
+  const statMap = new Map((typeStats || []).map(s => [s.type, s]));
 
-  const scaled = typeStats.map(s => ({
-    ...s,
-    scaledScore: s.typeScore / 20
-  }));
+  const allTypes = RADAR_TYPES.filter(t => !EXCLUDED_TYPES.has(t));
 
-  const avg = scaled.reduce((sum, s) => sum + s.scaledScore, 0) / scaled.length;
+  const filled = allTypes.map(type => {
+    const stat = statMap.get(type);
 
-  return scaled.map(s => ({
-    ...s,
-    deviation: clamp(s.scaledScore - avg, -2.5, 2.5)
-  }));
+    if (stat) {
+      return {
+        ...stat,
+        typeScore: Number.isFinite(stat.typeScore) ? stat.typeScore : 0
+      };
+    }
+
+    return {
+      type,
+      typeScore: 0,
+      avgScore: 0,
+      avgRating: 0,
+      count: 0,
+      representativeSongs: [],
+      confidence: 0
+    };
+  });
+
+  if (filled.length === 0) return [];
+
+  const scores = filled.map(s => s.typeScore);
+  const maxScore = Math.max(...scores);
+  const minScore = Math.min(...scores);
+  const avgScore = scores.reduce((sum, v) => sum + v, 0) / scores.length;
+
+  const range = maxScore - minScore;
+
+  // 把最高～最低的全距縮放成 5 格，也就是 -2.5 ～ +2.5。
+  // 若全距太小，避免除以 0。
+  const scale = range > 0 ? range / 5 : 1;
+
+  return filled.map(s => {
+    const rawDeviation = s.typeScore - avgScore;
+    const deviation = clamp(rawDeviation / scale, -2.5, 2.5);
+
+    return {
+      ...s,
+      rawDeviation,
+      deviation
+    };
+  });
 }
 
 function renderTypeRadar(typeStats) {
@@ -1082,7 +1128,7 @@ function renderTypeRadar(typeStats) {
   }).join("");
 
   svg.innerHTML = `
-    <text x="24" y="34" class="radar-caption">分類偏差值：適性分數 / 20 後，扣掉全分類平均。範圍限制在 -2.50 ～ +2.50。</text>
+    <text x="24" y="34" class="radar-caption">分類偏差值：以所有有效分類的平均為 0，並依最高分與最低分的全距縮放到 -2.50 ～ +2.50。</text>
     ${rings}
     ${axes}
     <polygon class="radar-polygon" points="${polygonPoints}"></polygon>
