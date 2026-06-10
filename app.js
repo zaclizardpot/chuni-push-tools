@@ -1055,7 +1055,7 @@ function calculateTypeDeviations(typeStats) {
     }
 
     const rawDeviation = s.typeScore - avgScore;
-    const deviation = clamp(rawDeviation / scale, -2.5, 2.5);
+    const deviation = clamp(rawDeviation / scale, -3, 3);//多角圖的上下限
 
     return {
       ...s,
@@ -1081,7 +1081,7 @@ function renderTypeRadar(typeStats) {
   const cx = 360;
   const cy = 280;
   const maxRadius = 185;
-  const maxAbs = 2.5;
+  const maxAbs = 3;//多角圖的上下限
   const zeroRadius = maxRadius * 0.5;
 
   const n = data.length;
@@ -1114,7 +1114,7 @@ function renderTypeRadar(typeStats) {
     return `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
   }).join(" ");
 
-  const rings = [-2.5, -1.25, 0, 1.25, 2.5].map(v => {
+  const rings = [-3, -1.5, 0, 1.5, 3].map(v => {
     const cls = v === 0 ? "radar-zero" : "radar-grid";
     return `<polygon class="${cls}" points="${ringPoints(v)}"></polygon>`;
   }).join("");
@@ -1150,7 +1150,7 @@ function renderTypeRadar(typeStats) {
   }).join("");
 
   svg.innerHTML = `
-    <text x="24" y="34" class="radar-caption">分類偏差值：以所有有效分類的平均為 0，並依最高分與最低分的全距縮放到 -2.50 ～ +2.50。</text>
+    <text x="24" y="34" class="radar-caption">分類偏差值：以所有有效分類的平均為 0，並依最高分與最低分的全距縮放到 -3.00 ～ +3.00。</text>
     ${rings}
     ${axes}
     <polygon class="radar-polygon" points="${polygonPoints}"></polygon>
