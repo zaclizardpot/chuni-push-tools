@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CHUNITHM 推分推薦器 v0.1</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <header class="hero">
+    <div>
+      <p class="eyebrow">CHUNITHM Push Score Tool</p>
+      <h1>推分推薦器 v0.1</h1>
+      <p class="subtitle">上傳從書籤工具匯出的分表 CSV，依照玩家高分池分類適性推薦可推分歌曲。</p>
+    </div>
+    <div class="badge">v0.1</div>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>1. 匯入資料</h2>
+      <div class="grid two">
+        <label class="file-box">
+          <span>玩家分表 CSV</span>
+          <input id="scoreFile" type="file" accept=".csv,text/csv" />
+          <small>使用你剛剛做的「CHUNITHM CSV 匯出」書籤下載的檔案。</small>
+        </label>
+
+        <label class="file-box">
+          <span>譜面資料庫 CSV（可選）</span>
+          <input id="dbFile" type="file" accept=".csv,text/csv" />
+          <small>不選時會讀取同資料夾的 chart_database.csv。</small>
+        </label>
+      </div>
+
+      <div class="settings">
+        <label>
+          分析樣本數
+          <input id="sampleSize" type="number" min="30" max="100" value="50" />
+        </label>
+        <label>
+          有效成績門檻
+          <input id="scoreThreshold" type="number" min="975000" max="1010000" value="1006000" />
+        </label>
+        <label>
+          推分補正
+          <input id="ratingOffset" type="number" min="0" max="5" step="0.1" value="2.1" />
+        </label>
+        <label>
+          推薦數量
+          <input id="recommendCount" type="number" min="10" max="200" value="50" />
+        </label>
+      </div>
+
+      <div class="actions">
+        <button id="analyzeBtn">開始分析</button>
+        <button id="downloadResultBtn" class="secondary" disabled>下載推薦結果 CSV</button>
+      </div>
+
+      <p id="status" class="status">等待匯入玩家分表 CSV。</p>
+    </section>
+
+    <section id="summarySection" class="card hidden">
+      <h2>2. 分析摘要</h2>
+      <div id="summaryCards" class="summary-grid"></div>
+      <div id="warnings" class="warnings"></div>
+    </section>
+
+    <section id="typeSection" class="card hidden">
+      <h2>3. 玩家分類適性</h2>
+      <p class="hint">v0.1 只計算主分類與副分類；技巧標籤暫時只顯示，不納入分數。計算時排除「標準、全體難、最後不能鬆懈」。</p>
+      <div class="table-wrap">
+        <table id="typeTable">
+          <thead>
+            <tr>
+              <th>排名</th>
+              <th>分類</th>
+              <th>適性分數</th>
+              <th>加權平均成績</th>
+              <th>加權平均單曲 Rating</th>
+              <th>樣本數</th>
+              <th>代表歌曲</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="recommendSection" class="card hidden">
+      <h2>4. 推薦歌曲</h2>
+      <p class="hint">第一版不排除已打過歌曲；若玩家分表中已有紀錄，會在「玩家已有成績」欄顯示。</p>
+      <div class="table-wrap">
+        <table id="recommendTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>歌名</th>
+              <th>難度</th>
+              <th>定數</th>
+              <th>推薦分數</th>
+              <th>主分類</th>
+              <th>副分類</th>
+              <th>技巧標籤</th>
+              <th>玩家已有成績</th>
+              <th>推薦理由</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>本工具為非官方工具。資料與推薦結果僅供推分規劃參考。</p>
+  </footer>
+
+  <script src="./app.js"></script>
+</body>
+</html>
