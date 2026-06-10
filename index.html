@@ -47,8 +47,12 @@
           <input id="ratingOffset" type="number" min="0" max="5" step="0.1" value="2.1" />
         </label>
         <label>
-          推薦數量
+          主推推薦數量
           <input id="recommendCount" type="number" min="10" max="200" value="50" />
+        </label>
+        <label>
+          挑戰推薦數量
+          <input id="challengeCount" type="number" min="5" max="50" value="15" />
         </label>
       </div>
 
@@ -88,8 +92,8 @@
     </section>
 
     <section id="recommendSection" class="card hidden">
-      <h2>4. 推薦歌曲</h2>
-      <p class="hint">第一版不排除已打過歌曲；若玩家分表中已有紀錄，會在「玩家已有成績」欄顯示。</p>
+      <h2>4. 主推歌曲</h2>
+      <p class="hint">主推區間：最低推分定數 ～ 穩定上限。已排除 All 前 15 名歌曲。</p>
       <div class="table-wrap">
         <table id="recommendTable">
           <thead>
@@ -98,7 +102,30 @@
               <th>歌名</th>
               <th>難度</th>
               <th>定數</th>
-              <th>推薦區間</th>
+              <th>推薦分數</th>
+              <th>主分類</th>
+              <th>副分類</th>
+              <th>技巧標籤</th>
+              <th>玩家已有成績</th>
+              <th>推薦理由</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="challengeSection" class="card hidden">
+      <h2>5. 挑戰歌曲</h2>
+      <p class="hint">挑戰區間：穩定上限以上 ～ 最高推薦定數。數量較少，用來挑戰上限，不一定最穩。</p>
+      <div class="table-wrap">
+        <table id="challengeTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>歌名</th>
+              <th>難度</th>
+              <th>定數</th>
               <th>推薦分數</th>
               <th>主分類</th>
               <th>副分類</th>
@@ -117,6 +144,6 @@
     <p>本工具為非官方工具。資料與推薦結果僅供推分規劃參考。</p>
   </footer>
 
-  <script src="./app.js?v=012"></script>
+  <script src="./app.js?v=013"></script>
 </body>
 </html>
