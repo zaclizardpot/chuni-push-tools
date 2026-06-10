@@ -976,16 +976,19 @@ function renderSummary(result) {
 function renderTypeTable(typeStats) {
   const tbody = $("typeTable").querySelector("tbody");
   const enriched = calculateTypeDeviations(typeStats)
-    .sort((a, b) => b.typeScore - a.typeScore);
+    .sort((a, b) => {
+      if (a.hasData !== b.hasData) return a.hasData ? -1 : 1;
+      return (b.typeScore || 0) - (a.typeScore || 0);
+    });
 
   tbody.innerHTML = enriched.map((s, i) => `
     <tr>
       <td>${i + 1}</td>
       <td><strong>${escapeHtml(s.type)}</strong></td>
-      <td class="score">${s.typeScore.toFixed(1)}</td>
+      <td class="score">${s.hasData ? s.typeScore.toFixed(1) : ""}</td>
       <td class="${s.deviation >= 0 ? "good" : "bad"}">${s.deviation.toFixed(2)}</td>
-      <td>${s.avgScore ? Math.round(s.avgScore).toLocaleString() : "-"}</td>
-      <td>${s.avgRating ? s.avgRating.toFixed(2) : "-"}</td>
+      <td>${s.hasData && s.avgScore ? Math.round(s.avgScore).toLocaleString() : "-"}</td>
+      <td>${s.hasData && s.avgRating ? s.avgRating.toFixed(2) : "-"}</td>
       <td>${s.count}</td>
       <td class="tags">${escapeHtml((s.representativeSongs || []).join("、"))}</td>
     </tr>
@@ -1003,35 +1006,54 @@ function calculateTypeDeviations(typeStats) {
     if (stat) {
       return {
         ...stat,
-        typeScore: Number.isFinite(stat.typeScore) ? stat.typeScore : 0
+        typeScore: Number.isFinite(stat.typeScore) ? stat.typeScore : 0,
+        hasData: true
       };
     }
 
     return {
       type,
-      typeScore: 0,
+      typeScore: null,
       avgScore: 0,
       avgRating: 0,
       count: 0,
       representativeSongs: [],
-      confidence: 0
+      confidence: 0,
+      hasData: false
     };
   });
 
   if (filled.length === 0) return [];
 
-  const scores = filled.map(s => s.typeScore);
+  // 只有「有出現在玩家分表入選歌曲」的分類，才拿來算平均與全距
+  const scored = filled.filter(s => s.hasData && Number.isFinite(s.typeScore));
+
+  if (scored.length === 0) {
+    return filled.map(s => ({
+      ...s,
+      rawDeviation: 0,
+      deviation: 0
+    }));
+  }
+
+  const scores = scored.map(s => s.typeScore);
   const maxScore = Math.max(...scores);
   const minScore = Math.min(...scores);
   const avgScore = scores.reduce((sum, v) => sum + v, 0) / scores.length;
 
   const range = maxScore - minScore;
-
-  // 把最高～最低的全距縮放成 5 格，也就是 -2.5 ～ +2.5。
-  // 若全距太小，避免除以 0。
   const scale = range > 0 ? range / 5 : 1;
 
   return filled.map(s => {
+    // 沒有資料的分類不判斷強弱，偏差值固定 0
+    if (!s.hasData || !Number.isFinite(s.typeScore)) {
+      return {
+        ...s,
+        rawDeviation: 0,
+        deviation: 0
+      };
+    }
+
     const rawDeviation = s.typeScore - avgScore;
     const deviation = clamp(rawDeviation / scale, -2.5, 2.5);
 
