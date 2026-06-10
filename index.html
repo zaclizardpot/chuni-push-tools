@@ -55,11 +55,15 @@
           <input id="challengeCount" type="number" min="5" max="50" value="15" />
         </label>
         <label>
-          舒適圈最高定數
-          <input id="comfortMaxConstant" type="number" min="1" max="16" step="0.1" placeholder="自動推估" />
+          目標推分定數
+          <input id="targetPushConstant" type="number" min="1" max="16" step="0.1" placeholder="可留空" />
         </label>
         <label>
-          欲挑戰最高定數
+          挑戰定數下限
+          <input id="challengeMinConstant" type="number" min="1" max="16" step="0.1" placeholder="自動推估" />
+        </label>
+        <label>
+          挑戰定數上限
           <input id="challengeMaxConstant" type="number" min="1" max="16" step="0.1" placeholder="自動推估" />
         </label>
       </div>
@@ -152,6 +156,6 @@
     <p>本工具為非官方工具。資料與推薦結果僅供推分規劃參考。</p>
   </footer>
 
-  <script src="./app.js?v=014"></script>
+  <script src="./app.js?v=015"></script>
 </body>
 </html>
