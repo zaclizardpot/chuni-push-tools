@@ -1,9 +1,24 @@
-const APP_VERSION = "v0.1.1";
+const APP_VERSION = "v0.1.2";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
 
 const EXCLUDED_TYPES = new Set(["標準", "全體難", "最後不能鬆懈"]);
+
+const SONG_ALIASES = new Map([
+  ["re:end of a dream", "re:end of a dream"],
+  ["re:endofadream", "re:endofadream"],
+
+  ["赤壁大炎上", "赤壁大炎上"],
+
+  ["回帰scherzoフォルトゥーナの悪戯", "回帰scherzoフォルトゥーナの悪戯"],
+  ["回帰scherzo", "回帰scherzoフォルトゥーナの悪戯"],
+
+  ["ビッグブリッヂの死闘シアトリズムffacarrangefromffv", "ビッグブリッヂの死闘シアトリズムffacarrangefromffv"],
+
+  ["献身paradoxofchoice", "献身paradoxofchoice"],
+  ["献身", "献身paradoxofchoice"]
+]);
 
 let lastRecommendations = [];
 
@@ -379,7 +394,13 @@ function buildChartIndex(chartRows) {
 }
 
 function findBestChartMatch(score, chartIndex) {
-  const candidates = chartIndex.get(normalizeSongName(score.song)) || [];
+  const scoreKey = normalizeSongName(score.song);
+  let candidates = chartIndex.get(scoreKey) || [];
+
+  if (candidates.length === 0) {
+    candidates = findFuzzyChartCandidates(scoreKey, chartIndex);
+  }
+
   if (candidates.length === 0) return null;
   if (candidates.length === 1) return candidates[0];
 
@@ -389,12 +410,29 @@ function findBestChartMatch(score, chartIndex) {
       .map(c => ({ chart: c, diff: Math.abs(c.constant - score.constant) }))
       .sort((a, b) => a.diff - b.diff);
 
-    if (sorted.length > 0 && sorted[0].diff <= 0.11) {
+    if (sorted.length > 0 && sorted[0].diff <= 0.21) {
       return sorted[0].chart;
     }
   }
 
   return candidates[0];
+}
+
+function findFuzzyChartCandidates(scoreKey, chartIndex) {
+  const result = [];
+
+  for (const [dbKey, charts] of chartIndex.entries()) {
+    if (!scoreKey || !dbKey) continue;
+
+    const shorter = scoreKey.length <= dbKey.length ? scoreKey : dbKey;
+    const longer = scoreKey.length > dbKey.length ? scoreKey : dbKey;
+
+    if (shorter.length >= 5 && longer.includes(shorter)) {
+      result.push(...charts);
+    }
+  }
+
+  return result;
 }
 
 function buildPlayerRecordIndex(scoreRows) {
@@ -408,7 +446,21 @@ function buildPlayerRecordIndex(scoreRows) {
 }
 
 function findPlayerRecordForChart(chart, playerRecordIndex) {
-  const candidates = playerRecordIndex.get(chart.normSong) || [];
+  const chartKey = chart.normSong;
+  let candidates = playerRecordIndex.get(chartKey) || [];
+
+  if (candidates.length === 0) {
+    for (const [scoreKey, records] of playerRecordIndex.entries()) {
+      const shorter = scoreKey.length <= chartKey.length ? scoreKey : chartKey;
+      const longer = scoreKey.length > chartKey.length ? scoreKey : chartKey;
+
+      if (shorter.length >= 5 && longer.includes(shorter)) {
+        candidates = records;
+        break;
+      }
+    }
+  }
+
   if (candidates.length === 0) return null;
 
   const sorted = candidates.map(r => ({
@@ -418,7 +470,7 @@ function findPlayerRecordForChart(chart, playerRecordIndex) {
       : 999
   })).sort((a, b) => a.diff - b.diff || b.record.rating - a.record.rating);
 
-  if (sorted[0].diff <= 0.11 || candidates.length === 1) return sorted[0].record;
+  if (sorted[0].diff <= 0.21 || candidates.length === 1) return sorted[0].record;
   return null;
 }
 
