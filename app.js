@@ -1,4 +1,4 @@
-const APP_VERSION = "v0.1.3";
+const APP_VERSION = "v0.1.4";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
@@ -95,8 +95,17 @@ function getSettings() {
     scoreThreshold: readNumber("scoreThreshold", 1006000),
     ratingOffset: readNumber("ratingOffset", 2.1),
     recommendCount: readNumber("recommendCount", 50),
-    challengeCount: readNumber("challengeCount", 15)
+    challengeCount: readNumber("challengeCount", 15),
+    comfortMaxConstant: readOptionalNumber("comfortMaxConstant"),
+    challengeMaxConstant: readOptionalNumber("challengeMaxConstant")
   };
+}
+
+function readOptionalNumber(id) {
+  const raw = $(id).value;
+  if (raw === "" || raw == null) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
 }
 
 function readNumber(id, fallback) {
@@ -255,25 +264,46 @@ function normalizeChartRows(rows) {
 function runAnalysis(scoreRows, chartRows, settings) {
   const sortedScores = [...scoreRows].sort((a, b) => b.rating - a.rating);
   const top30 = sortedScores.slice(0, 30);
-  const all30Rating = top30.length >= 30 ? top30[29].rating : sortedScores[sortedScores.length - 1].rating;
-  const excludedTopSongs = new Set(
-    sortedScores.slice(0, 15).map(r => normalizeSongName(r.song))
-  );
+
+  const all1Rating = sortedScores.length > 0 ? sortedScores[0].rating : 0;
+  const all30Rating = top30.length >= 30
+    ? top30[29].rating
+    : sortedScores[sortedScores.length - 1].rating;
 
   const minUsefulConstant = roundToOne(all30Rating - settings.ratingOffset);
 
-  const stableUpperConstant = calculateStableUpperConstant(sortedScores, all30Rating);
-  const challengeUpperConstant = roundToOne(stableUpperConstant + 0.2);
-  const insuranceUpperConstant = roundToOne(all30Rating - 1.0);
-  let maxUsefulConstant = roundToOne(Math.min(challengeUpperConstant, insuranceUpperConstant));
+  const autoComfortMaxConstant = calculateComfortConstant(sortedScores, settings);
+  const autoChallengeMaxConstant = calculateAutoChallengeMaxConstant(
+    sortedScores,
+    all1Rating,
+    all30Rating,
+    autoComfortMaxConstant
+  );
 
-  if (maxUsefulConstant < minUsefulConstant) {
-    maxUsefulConstant = minUsefulConstant;
+  fillAutoConstantInput("comfortMaxConstant", autoComfortMaxConstant);
+  fillAutoConstantInput("challengeMaxConstant", autoChallengeMaxConstant);
+
+  let comfortMaxConstant = settings.comfortMaxConstant ?? autoComfortMaxConstant;
+  let challengeMaxConstant = settings.challengeMaxConstant ?? autoChallengeMaxConstant;
+
+  comfortMaxConstant = roundToOne(comfortMaxConstant);
+  challengeMaxConstant = roundToOne(challengeMaxConstant);
+
+  if (comfortMaxConstant < minUsefulConstant) {
+    comfortMaxConstant = minUsefulConstant;
+  }
+
+  if (challengeMaxConstant < comfortMaxConstant) {
+    challengeMaxConstant = comfortMaxConstant;
   }
 
   const selectedScores = sortedScores
     .slice(0, settings.sampleSize)
     .filter(r => r.score >= settings.scoreThreshold);
+
+  const excludedTopSongs = new Set(
+    sortedScores.slice(0, 15).map(r => normalizeSongName(r.song))
+  );
 
   const chartIndex = buildChartIndex(chartRows);
   const selectedWithCharts = [];
@@ -293,7 +323,7 @@ function runAnalysis(scoreRows, chartRows, settings) {
   const usefulCharts = chartRows.filter(c =>
     Number.isFinite(c.constant) &&
     c.constant >= minUsefulConstant &&
-    c.constant <= maxUsefulConstant
+    c.constant <= challengeMaxConstant
   );
 
   const playerRecordIndex = buildPlayerRecordIndex(scoreRows);
@@ -302,58 +332,51 @@ function runAnalysis(scoreRows, chartRows, settings) {
     .filter(chart => !excludedTopSongs.has(chart.normSong))
     .map(chart => {
       const typeMatch = calculateChartTypeMatch(chart, typeStats);
-  
-      const mainPotential = clamp(
-        (chart.constant - minUsefulConstant) / Math.max(0.1, stableUpperConstant - minUsefulConstant),
-        0,
-        1
-      );
-  
-      const challengePotential = clamp(
-        (chart.constant - stableUpperConstant) / Math.max(0.1, maxUsefulConstant - stableUpperConstant),
-        0,
-        1
-      );
-  
       const confidenceScore = typeMatch.confidence;
       const risk = calculateRiskPenalty(chart, typeStats);
-      const recommendZone = chart.constant <= stableUpperConstant ? "主推" : "挑戰";
-  
-      const potential = recommendZone === "主推" ? mainPotential : challengePotential;
-  
+
+      const recommendZone = chart.constant <= comfortMaxConstant ? "主推" : "挑戰";
+
+      const targetConstant = recommendZone === "主推"
+        ? comfortMaxConstant
+        : challengeMaxConstant;
+
+      const progressionFit = calculateProgressionFit(chart.constant, targetConstant);
+
       const recommendScore = Math.max(0, Math.min(100,
-        potential * 20 +
-        typeMatch.score * 65 +
-        confidenceScore * 15 -
+        typeMatch.score * 75 +
+        confidenceScore * 15 +
+        progressionFit * 10 -
         risk
       ));
-  
+
       const playerRecord = findPlayerRecordForChart(chart, playerRecordIndex);
       const reason = buildReason(chart, typeMatch, recommendZone);
-  
+
       return {
         ...chart,
         recommendScore,
         recommendZone,
         typeMatchScore: typeMatch.score,
+        progressionFit,
         playerRecord,
         playerRecordText: formatPlayerRecord(playerRecord),
         reason
       };
     });
-  
+
   const mainRecommendations = scoredCharts
     .filter(r => r.recommendZone === "主推")
     .sort((a, b) => b.recommendScore - a.recommendScore)
     .slice(0, settings.recommendCount);
-  
+
   const challengeRecommendations = scoredCharts
     .filter(r => r.recommendZone === "挑戰")
     .sort((a, b) => b.recommendScore - a.recommendScore)
     .slice(0, settings.challengeCount);
-  
+
   const recommendations = [...mainRecommendations, ...challengeRecommendations];
-  
+
   return {
     scoreRows,
     chartRows,
@@ -366,12 +389,13 @@ function runAnalysis(scoreRows, chartRows, settings) {
     summary: {
       scoreCount: scoreRows.length,
       chartCount: chartRows.length,
+      all1Rating,
       all30Rating,
       minUsefulConstant,
-      stableUpperConstant,
-      challengeUpperConstant,
-      insuranceUpperConstant,
-      maxUsefulConstant,
+      autoComfortMaxConstant,
+      autoChallengeMaxConstant,
+      comfortMaxConstant,
+      challengeMaxConstant,
       selectedCount: selectedScores.length,
       matchedSelectedCount: selectedWithCharts.length,
       usefulChartCount: usefulCharts.length,
@@ -379,6 +403,88 @@ function runAnalysis(scoreRows, chartRows, settings) {
       challengeRecommendCount: challengeRecommendations.length
     }
   };
+}
+
+function calculateComfortConstant(sortedScores, settings) {
+  const sample = sortedScores
+    .slice(0, settings.sampleSize)
+    .filter(r => Number.isFinite(r.constant) && r.score >= settings.scoreThreshold)
+    .map(r => roundToOne(r.constant))
+    .sort((a, b) => a - b);
+
+  if (sample.length === 0) {
+    return roundToOne(sortedScores[0]?.constant || 14.0);
+  }
+
+  const index = Math.floor((sample.length - 1) * 0.75);
+  const comfort = sample[index];
+
+  return roundToOne(comfort + 0.1);
+}
+
+function calculateAutoChallengeMaxConstant(sortedScores, all1Rating, all30Rating, comfortMaxConstant) {
+  const stableUpperConstant = calculateStableUpperConstant(sortedScores, all30Rating);
+  const challengeUpperConstant = roundToOne(stableUpperConstant + 0.2);
+  const sweetSpotUpperConstant = roundToOne(all1Rating - 1.9);
+  const insuranceUpperConstant = roundToOne(all30Rating - 1.0);
+
+  let autoMax = Math.min(
+    challengeUpperConstant,
+    sweetSpotUpperConstant,
+    insuranceUpperConstant
+  );
+
+  autoMax = roundToOne(autoMax);
+
+  if (autoMax < comfortMaxConstant) {
+    autoMax = comfortMaxConstant;
+  }
+
+  return autoMax;
+}
+
+function calculateStableUpperConstant(sortedScores, all30Rating) {
+  const threshold = 1005000;
+  const minCount = 3;
+
+  const eligible = sortedScores
+    .filter(r => Number.isFinite(r.constant) && r.score >= threshold)
+    .map(r => ({
+      constant: roundToOne(r.constant),
+      song: r.song,
+      score: r.score
+    }));
+
+  if (eligible.length < minCount) {
+    return roundToOne(all30Rating - 1.5);
+  }
+
+  const candidateConstants = [...new Set(eligible.map(r => r.constant))]
+    .sort((a, b) => b - a);
+
+  for (const c of candidateConstants) {
+    const count = eligible.filter(r => r.constant >= c).length;
+    if (count >= minCount) {
+      return c;
+    }
+  }
+
+  return roundToOne(all30Rating - 1.5);
+}
+
+function calculateProgressionFit(constant, targetConstant) {
+  const distance = Math.abs(roundToOne(constant) - roundToOne(targetConstant));
+
+  return clamp(1 - distance / 0.3, 0, 1);
+}
+
+function fillAutoConstantInput(id, value) {
+  const input = $(id);
+  if (!input) return;
+
+  if (input.value === "") {
+    input.value = roundToOne(value).toFixed(1);
+  }
 }
 
 function calculateStableUpperConstant(sortedScores, all30Rating) {
@@ -664,12 +770,13 @@ function renderSummary(result) {
   const cards = [
     ["玩家 All 筆數", s.scoreCount],
     ["資料庫譜面數", s.chartCount],
+    ["All 第 1 名 Rating", s.all1Rating.toFixed(2)],
     ["All 第 30 名 Rating", s.all30Rating.toFixed(2)],
     ["最低推分定數", s.minUsefulConstant.toFixed(1)],
-    ["穩定上限", s.stableUpperConstant.toFixed(1)],
-    ["挑戰上限", s.challengeUpperConstant.toFixed(1)],
-    ["上限保險", s.insuranceUpperConstant.toFixed(1)],
-    ["最高推薦定數", s.maxUsefulConstant.toFixed(1)],
+    ["自動舒適圈上限", s.autoComfortMaxConstant.toFixed(1)],
+    ["目前舒適圈上限", s.comfortMaxConstant.toFixed(1)],
+    ["自動挑戰上限", s.autoChallengeMaxConstant.toFixed(1)],
+    ["目前挑戰上限", s.challengeMaxConstant.toFixed(1)],
     ["入選歌曲", s.selectedCount],
     ["成功匹配資料庫", s.matchedSelectedCount],
     ["有用歌曲數", s.usefulChartCount],
