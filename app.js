@@ -1,4 +1,4 @@
-const APP_VERSION = "v0.1.2";
+const APP_VERSION = "v0.1.3";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
@@ -28,13 +28,13 @@ $("analyzeBtn").addEventListener("click", analyze);
 $("downloadResultBtn").addEventListener("click", () => {
   if (lastRecommendations.length === 0) return;
   const rows = [
-    ["排名", "歌名", "難度", "譜面定數", "推薦區間", "推薦分數", "主分類", "副分類", "技巧標籤", "玩家已有成績", "推薦理由"],
+    ["排名", "推薦區間", "歌名", "難度", "譜面定數", "推薦分數", "主分類", "副分類", "技巧標籤", "玩家已有成績", "推薦理由"],
     ...lastRecommendations.map((r, i) => [
       i + 1,
+      r.recommendZone,
       r.song,
       r.difficulty,
       r.constant,
-      r.recommendZone,
       r.recommendScore.toFixed(2),
       r.mainType,
       r.subTypesText,
@@ -94,7 +94,8 @@ function getSettings() {
     sampleSize: readNumber("sampleSize", 50),
     scoreThreshold: readNumber("scoreThreshold", 1006000),
     ratingOffset: readNumber("ratingOffset", 2.1),
-    recommendCount: readNumber("recommendCount", 50)
+    recommendCount: readNumber("recommendCount", 50),
+    challengeCount: readNumber("challengeCount", 15)
   };
 }
 
@@ -107,6 +108,7 @@ function hideResults() {
   $("summarySection").classList.add("hidden");
   $("typeSection").classList.add("hidden");
   $("recommendSection").classList.add("hidden");
+  $("challengeSection").classList.add("hidden");
   $("downloadResultBtn").disabled = true;
   lastRecommendations = [];
 }
@@ -254,6 +256,9 @@ function runAnalysis(scoreRows, chartRows, settings) {
   const sortedScores = [...scoreRows].sort((a, b) => b.rating - a.rating);
   const top30 = sortedScores.slice(0, 30);
   const all30Rating = top30.length >= 30 ? top30[29].rating : sortedScores[sortedScores.length - 1].rating;
+  const excludedTopSongs = new Set(
+    sortedScores.slice(0, 15).map(r => normalizeSongName(r.song))
+  );
 
   const minUsefulConstant = roundToOne(all30Rating - settings.ratingOffset);
 
@@ -293,42 +298,62 @@ function runAnalysis(scoreRows, chartRows, settings) {
 
   const playerRecordIndex = buildPlayerRecordIndex(scoreRows);
 
-  const recommendations = usefulCharts.map(chart => {
-    const typeMatch = calculateChartTypeMatch(chart, typeStats);
-    const potential = clamp((chart.constant - minUsefulConstant) / Math.max(0.1, maxUsefulConstant - minUsefulConstant), 0, 1);
-    const confidenceScore = typeMatch.confidence;
-    const risk = calculateRiskPenalty(chart, typeStats);
-
-    const recommendZone = chart.constant <= stableUpperConstant ? "主推" : "挑戰";
-
-    const recommendScore = Math.max(0, Math.min(100,
-      potential * 35 +
-      typeMatch.score * 50 +
-      confidenceScore * 15 -
-      risk
-    ));
-
-    const playerRecord = findPlayerRecordForChart(chart, playerRecordIndex);
-    const reason = buildReason(chart, typeMatch, recommendZone);
-
-    return {
-      ...chart,
-      recommendScore,
-      recommendZone,
-      typeMatchScore: typeMatch.score,
-      playerRecord,
-      playerRecordText: formatPlayerRecord(playerRecord),
-      reason
-    };
-  })
-  .sort((a, b) => {
-    if (a.recommendZone !== b.recommendZone) {
-      return a.recommendZone === "主推" ? -1 : 1;
-    }
-    return b.recommendScore - a.recommendScore;
-  })
-  .slice(0, settings.recommendCount);
-
+  const scoredCharts = usefulCharts
+    .filter(chart => !excludedTopSongs.has(chart.normSong))
+    .map(chart => {
+      const typeMatch = calculateChartTypeMatch(chart, typeStats);
+  
+      const mainPotential = clamp(
+        (chart.constant - minUsefulConstant) / Math.max(0.1, stableUpperConstant - minUsefulConstant),
+        0,
+        1
+      );
+  
+      const challengePotential = clamp(
+        (chart.constant - stableUpperConstant) / Math.max(0.1, maxUsefulConstant - stableUpperConstant),
+        0,
+        1
+      );
+  
+      const confidenceScore = typeMatch.confidence;
+      const risk = calculateRiskPenalty(chart, typeStats);
+      const recommendZone = chart.constant <= stableUpperConstant ? "主推" : "挑戰";
+  
+      const potential = recommendZone === "主推" ? mainPotential : challengePotential;
+  
+      const recommendScore = Math.max(0, Math.min(100,
+        potential * 20 +
+        typeMatch.score * 65 +
+        confidenceScore * 15 -
+        risk
+      ));
+  
+      const playerRecord = findPlayerRecordForChart(chart, playerRecordIndex);
+      const reason = buildReason(chart, typeMatch, recommendZone);
+  
+      return {
+        ...chart,
+        recommendScore,
+        recommendZone,
+        typeMatchScore: typeMatch.score,
+        playerRecord,
+        playerRecordText: formatPlayerRecord(playerRecord),
+        reason
+      };
+    });
+  
+  const mainRecommendations = scoredCharts
+    .filter(r => r.recommendZone === "主推")
+    .sort((a, b) => b.recommendScore - a.recommendScore)
+    .slice(0, settings.recommendCount);
+  
+  const challengeRecommendations = scoredCharts
+    .filter(r => r.recommendZone === "挑戰")
+    .sort((a, b) => b.recommendScore - a.recommendScore)
+    .slice(0, settings.challengeCount);
+  
+  const recommendations = [...mainRecommendations, ...challengeRecommendations];
+  
   return {
     scoreRows,
     chartRows,
@@ -349,7 +374,9 @@ function runAnalysis(scoreRows, chartRows, settings) {
       maxUsefulConstant,
       selectedCount: selectedScores.length,
       matchedSelectedCount: selectedWithCharts.length,
-      usefulChartCount: usefulCharts.length
+      usefulChartCount: usefulCharts.length,
+      mainRecommendCount: mainRecommendations.length,
+      challengeRecommendCount: challengeRecommendations.length
     }
   };
 }
@@ -617,12 +644,18 @@ function buildReason(chart, typeMatch, recommendZone = "") {
 function renderAll(result) {
   renderSummary(result);
   renderTypeTable(result.typeStats);
-  renderRecommendTable(result.recommendations);
+
+  const mainRecommendations = result.recommendations.filter(r => r.recommendZone === "主推");
+  const challengeRecommendations = result.recommendations.filter(r => r.recommendZone === "挑戰");
+
+  renderRecommendTable(mainRecommendations);
+  renderChallengeTable(challengeRecommendations);
 
   lastRecommendations = result.recommendations;
   $("summarySection").classList.remove("hidden");
   $("typeSection").classList.remove("hidden");
   $("recommendSection").classList.remove("hidden");
+  $("challengeSection").classList.remove("hidden");
   $("downloadResultBtn").disabled = false;
 }
 
@@ -640,7 +673,8 @@ function renderSummary(result) {
     ["入選歌曲", s.selectedCount],
     ["成功匹配資料庫", s.matchedSelectedCount],
     ["有用歌曲數", s.usefulChartCount],
-    ["推薦輸出", result.recommendations.length]
+    ["主推輸出", s.mainRecommendCount],
+    ["挑戰輸出", s.challengeRecommendCount]
   ];
 
   $("summaryCards").innerHTML = cards.map(([label, value]) => `
@@ -678,13 +712,21 @@ function renderTypeTable(typeStats) {
 
 function renderRecommendTable(recommendations) {
   const tbody = $("recommendTable").querySelector("tbody");
-  tbody.innerHTML = recommendations.map((r, i) => `
+  tbody.innerHTML = renderRecommendationRows(recommendations);
+}
+
+function renderChallengeTable(recommendations) {
+  const tbody = $("challengeTable").querySelector("tbody");
+  tbody.innerHTML = renderRecommendationRows(recommendations);
+}
+
+function renderRecommendationRows(recommendations) {
+  return recommendations.map((r, i) => `
     <tr>
       <td>${i + 1}</td>
       <td><strong>${escapeHtml(r.song)}</strong></td>
       <td>${escapeHtml(r.difficulty)}</td>
       <td>${r.constant.toFixed(1)}</td>
-      <td>${escapeHtml(r.recommendZone)}</td>
       <td class="score">${r.recommendScore.toFixed(1)}</td>
       <td>${escapeHtml(r.mainType)}</td>
       <td class="tags">${escapeHtml(r.subTypesText)}</td>
