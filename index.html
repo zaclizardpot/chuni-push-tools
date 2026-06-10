@@ -84,7 +84,12 @@
 
     <section id="typeSection" class="card hidden">
       <h2>3. 玩家分類適性</h2>
-      <p class="hint">v0.1 只計算主分類與副分類；技巧標籤暫時只顯示，不納入分數。計算時排除「標準、全體難、最後不能鬆懈」。</p>
+      <p class="hint">v0.1 只計算主分類與副分類；技巧標籤暫時只顯示，不納入分數。計算時排除「標準、全體難、最後不能鬆懈」。偏差圖以全分類平均為 0，顯示相對強弱。</p>
+    
+      <div class="radar-wrap">
+        <svg id="typeRadar" viewBox="0 0 720 560" role="img" aria-label="玩家分類偏差圖"></svg>
+      </div>
+    
       <div class="table-wrap">
         <table id="typeTable">
           <thead>
