@@ -196,6 +196,67 @@ button:disabled {
   margin-top: 6px;
 }
 
+.radar-wrap {
+  background: rgba(8, 15, 26, .72);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  margin-bottom: 16px;
+  overflow: auto;
+}
+
+#typeRadar {
+  width: 100%;
+  min-width: 680px;
+  height: auto;
+  display: block;
+}
+
+.radar-grid {
+  fill: none;
+  stroke: rgba(159, 179, 200, .25);
+  stroke-width: 1;
+}
+
+.radar-axis {
+  stroke: rgba(159, 179, 200, .28);
+  stroke-width: 1;
+}
+
+.radar-zero {
+  fill: none;
+  stroke: rgba(251, 191, 36, .55);
+  stroke-width: 2;
+  stroke-dasharray: 5 5;
+}
+
+.radar-polygon {
+  fill: rgba(56, 189, 248, .22);
+  stroke: rgba(56, 189, 248, .95);
+  stroke-width: 3;
+}
+
+.radar-point {
+  fill: var(--accent-2);
+  stroke: #ffffff;
+  stroke-width: 1.5;
+}
+
+.radar-label {
+  fill: var(--text);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.radar-value {
+  fill: var(--muted);
+  font-size: 12px;
+}
+
+.radar-caption {
+  fill: var(--muted);
+  font-size: 13px;
+}
+
 .table-wrap {
   overflow: auto;
   border: 1px solid var(--line);
