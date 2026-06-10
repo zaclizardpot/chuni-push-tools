@@ -1,4 +1,4 @@
-const APP_VERSION = "v0.1.5";
+const APP_VERSION = "v0.1.6";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
@@ -64,6 +64,14 @@ async function analyze() {
     }
 
     const settings = getSettings();
+
+    const validationMessage = validateConstantInputs(settings);
+    if (validationMessage) {
+      setStatus(validationMessage, "bad");
+      alert(validationMessage);
+      return;
+    }
+    
     const scoreText = await readFileText(scoreFile);
     const scoreRows = normalizeScoreRows(parseCsv(scoreText));
 
@@ -102,11 +110,47 @@ function getSettings() {
   };
 }
 
+function validateConstantInputs(settings) {
+  const items = [
+    ["目標推分定數", settings.targetPushConstant],
+    ["挑戰定數下限", settings.challengeMinConstant],
+    ["挑戰定數上限", settings.challengeMaxConstant]
+  ];
+
+  for (const [label, value] of items) {
+    if (value == null) continue;
+
+    if (value < 1 || value > 15.7) {
+      return `${label} 輸入錯誤：請輸入 1.0～15.7 之間的數字。`;
+    }
+  }
+
+  if (
+    settings.challengeMinConstant != null &&
+    settings.challengeMaxConstant != null &&
+    settings.challengeMinConstant > settings.challengeMaxConstant
+  ) {
+    return "挑戰定數下限不能大於挑戰定數上限。";
+  }
+
+  return "";
+}
+
 function readOptionalNumber(id) {
-  const raw = $(id).value;
+  const input = $(id);
+  if (!input) return null;
+
+  const raw = input.value;
   if (raw === "" || raw == null) return null;
+
   const value = Number(raw);
-  return Number.isFinite(value) ? value : null;
+  if (!Number.isFinite(value)) return null;
+
+  // 無條件捨去到小數點後一位：15.34 → 15.3
+  const floored = Math.floor(value * 10) / 10;
+
+  input.value = floored.toFixed(1);
+  return floored;
 }
 
 function readNumber(id, fallback) {
@@ -281,6 +325,22 @@ function runAnalysis(scoreRows, chartRows, settings) {
   const targetPushConstant = settings.targetPushConstant == null
     ? null
     : roundToOne(settings.targetPushConstant);
+  
+  if (
+    targetPushConstant != null &&
+    targetPushConstant >= roundToOne(autoTargetPushConstant + 0.2)
+  ) {
+    const ok = confirm(
+      `你輸入的目標推分定數是 ${targetPushConstant.toFixed(1)}，比系統建議的 ${autoTargetPushConstant.toFixed(1)} 高不少。\n\n` +
+      `這個定數比較像「挑戰歌曲」範圍。是否要先回去重新設定？\n\n` +
+      `按「確定」：回到原畫面重新輸入。\n` +
+      `按「取消」：維持目前設定並繼續分析。`
+    );
+  
+    if (ok) {
+      throw new Error("已取消分析，請重新設定目標推分定數或挑戰定數範圍。");
+    }
+  }
 
   const autoChallengeMinConstant = roundToOne(comfortConstant + 0.2);
   const autoChallengeMaxConstant = roundToOne(comfortConstant + 0.4);
@@ -369,13 +429,9 @@ function runAnalysis(scoreRows, chartRows, settings) {
           ));
         }
       } else {
-        const challengeCenter = roundToOne((challengeMinConstant + challengeMaxConstant) / 2);
-        const challengeFit = calculateRangeFit(chart.constant, challengeMinConstant, challengeMaxConstant, challengeCenter);
-
         recommendScore = Math.max(0, Math.min(100,
-          typeMatch.score * 65 +
-          confidenceScore * 15 +
-          challengeFit * 20 -
+          typeMatch.score * 80 +
+          confidenceScore * 20 -
           risk
         ));
       }
@@ -408,10 +464,10 @@ function runAnalysis(scoreRows, chartRows, settings) {
     })
     .slice(0, settings.recommendCount);
 
-  const challengeRecommendations = scoredCharts
-    .filter(r => r.recommendZone === "挑戰")
-    .sort((a, b) => b.recommendScore - a.recommendScore)
-    .slice(0, settings.challengeCount);
+  const challengeRecommendations = pickBalancedChallengeRecommendations(
+    scoredCharts.filter(r => r.recommendZone === "挑戰"),
+    settings.challengeCount
+  );
 
   const recommendations = [...mainRecommendations, ...challengeRecommendations];
 
@@ -448,6 +504,60 @@ function runAnalysis(scoreRows, chartRows, settings) {
   };
 }
 
+function pickBalancedChallengeRecommendations(charts, totalCount) {
+  const groups = new Map();
+
+  for (const chart of charts) {
+    const key = roundToOne(chart.constant).toFixed(1);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(chart);
+  }
+
+  const constants = [...groups.keys()].sort((a, b) => Number(a) - Number(b));
+  if (constants.length === 0) return [];
+
+  for (const c of constants) {
+    groups.get(c).sort((a, b) => b.recommendScore - a.recommendScore);
+  }
+
+  const maxPerConstant = Math.max(2, Math.ceil(totalCount / constants.length));
+  const picked = [];
+  const pickedKeys = new Set();
+
+  // 第一輪：每個定數最多拿 maxPerConstant 首，避免某一個定數洗版
+  for (const c of constants) {
+    const group = groups.get(c).slice(0, maxPerConstant);
+
+    for (const chart of group) {
+      const key = `${chart.difficulty}|${chart.song}`;
+      if (!pickedKeys.has(key) && picked.length < totalCount) {
+        picked.push(chart);
+        pickedKeys.add(key);
+      }
+    }
+  }
+
+  // 第二輪：如果數量不夠，再用總分最高的補滿
+  if (picked.length < totalCount) {
+    const rest = [...charts].sort((a, b) => b.recommendScore - a.recommendScore);
+
+    for (const chart of rest) {
+      const key = `${chart.difficulty}|${chart.song}`;
+      if (!pickedKeys.has(key)) {
+        picked.push(chart);
+        pickedKeys.add(key);
+      }
+
+      if (picked.length >= totalCount) break;
+    }
+  }
+
+  return picked.sort((a, b) => {
+    if (a.constant !== b.constant) return a.constant - b.constant;
+    return b.recommendScore - a.recommendScore;
+  });
+}
+
 function calculateComfortConstant(sortedScores, settings) {
   const sample = sortedScores
     .slice(0, settings.sampleSize)
@@ -466,16 +576,13 @@ function calculateComfortConstant(sortedScores, settings) {
 function calculateProgressionFit(constant, targetConstant) {
   const distance = Math.abs(roundToOne(constant) - roundToOne(targetConstant));
 
-  return clamp(1 - distance / 0.3, 0, 1);
-}
-
-function calculateRangeFit(constant, minConstant, maxConstant, centerConstant) {
-  if (constant < minConstant || constant > maxConstant) return 0;
-
-  const halfWidth = Math.max(0.1, (maxConstant - minConstant) / 2);
-  const distance = Math.abs(roundToOne(constant) - roundToOne(centerConstant));
-
-  return clamp(1 - distance / (halfWidth + 0.1), 0, 1);
+  // 原本是 0.3，太窄，導致差 0.3 以上都變 0。
+  // 現在改成 0.6：
+  // 差 0.0 → 1
+  // 差 0.2 → 約 0.67
+  // 差 0.4 → 約 0.33
+  // 差 0.6 以上 → 0
+  return clamp(1 - distance / 0.6, 0, 1);
 }
 
 function isInRange(value, min, max) {
