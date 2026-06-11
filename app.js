@@ -1,4 +1,4 @@
-const APP_VERSION = "v0.1.12-r";
+const APP_VERSION = "v0.1.13";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
@@ -1090,10 +1090,21 @@ function renderTypeRadar(typeStats) {
     return -Math.PI / 2 + (Math.PI * 2 * i) / n;
   }
 
-  function pointAt(i, value) {
+function pointAtGrid(i, value) {
+  const angle = angleAt(i);
+  const radius = (value / maxValue) * maxRadius;
+
+  return {
+    x: cx + Math.cos(angle) * radius,
+    y: cy + Math.sin(angle) * radius
+  };
+}
+
+function pointAtData(i, value) {
   const angle = angleAt(i);
 
-  // 顯示分數仍是 0～5，但畫圖時保留一點內外邊界，避免 0 貼中心、5 貼外框。
+  // 分數仍然是 0～5，但畫資料時保留內外邊界。
+  // 0 會畫在 0.5 的半徑，5 會畫在 4.5 的半徑。
   const visualMin = 0.5;
   const visualMax = 4.5;
   const visualValue = visualMin + (value / maxValue) * (visualMax - visualMin);
@@ -1107,13 +1118,13 @@ function renderTypeRadar(typeStats) {
 
   function ringPoints(value) {
     return data.map((_, i) => {
-      const p = pointAt(i, value);
+      const p = pointAtGrid(i, value);
       return `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
     }).join(" ");
   }
 
   const polygonPoints = data.map((d, i) => {
-    const p = pointAt(i, d.radarValue);
+    const p = pointAtData(i, d.radarValue);
     return `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
   }).join(" ");
 
@@ -1122,12 +1133,12 @@ function renderTypeRadar(typeStats) {
   }).join("");
 
   const axes = data.map((_, i) => {
-    const outer = pointAt(i, 5);
+    const outer = pointAtGrid(i, 5);
     return `<line class="radar-axis" x1="${cx}" y1="${cy}" x2="${outer.x.toFixed(1)}" y2="${outer.y.toFixed(1)}"></line>`;
   }).join("");
 
   const points = data.map((d, i) => {
-    const p = pointAt(i, d.radarValue);
+    const p = pointAtData(i, d.radarValue);
     return `<circle class="radar-point" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4"></circle>`;
   }).join("");
 
