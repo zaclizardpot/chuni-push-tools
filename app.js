@@ -1,4 +1,4 @@
-const APP_VERSION = "v0.1.12-re";
+const APP_VERSION = "v0.1.12-r";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
@@ -1091,14 +1091,19 @@ function renderTypeRadar(typeStats) {
   }
 
   function pointAt(i, value) {
-    const angle = angleAt(i);
-    const radius = (value / maxValue) * maxRadius;
+  const angle = angleAt(i);
 
-    return {
-      x: cx + Math.cos(angle) * radius,
-      y: cy + Math.sin(angle) * radius
-    };
-  }
+  // 顯示分數仍是 0～5，但畫圖時保留一點內外邊界，避免 0 貼中心、5 貼外框。
+  const visualMin = 0.5;
+  const visualMax = 4.5;
+  const visualValue = visualMin + (value / maxValue) * (visualMax - visualMin);
+  const radius = (visualValue / maxValue) * maxRadius;
+
+  return {
+    x: cx + Math.cos(angle) * radius,
+    y: cy + Math.sin(angle) * radius
+  };
+}
 
   function ringPoints(value) {
     return data.map((_, i) => {
