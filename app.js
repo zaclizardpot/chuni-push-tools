@@ -1,31 +1,31 @@
-const APP_VERSION = "v0.1.15";
+const APP_VERSION = "v0.1.14";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
 
-const TYPE_ALIASES = new Map([
-  ["局部難", "爆發處理"]
-]);
-
 const EXCLUDED_TYPES = new Set(["標準", "全體難", "最後不能鬆懈"]);
 
 const RADAR_TYPES = [
-  "爆發處理",
-  "高速處理",
   "物量譜面",
-  "混合節奏",
+  "高速處理",
+  "局部難",
   "拘束配置",
+  "混合節奏",
   "視認難",
   "階段"
-];
+];//如果之後還有新的副分類想放進圖，例如 交叉配置、節奏難，就直接加在這個陣列裡。
 
 const SONG_ALIASES = new Map([
   ["re:end of a dream", "re:end of a dream"],
   ["re:endofadream", "re:endofadream"],
+
   ["赤壁大炎上", "赤壁大炎上"],
+
   ["回帰scherzoフォルトゥーナの悪戯", "回帰scherzoフォルトゥーナの悪戯"],
   ["回帰scherzo", "回帰scherzoフォルトゥーナの悪戯"],
+
   ["ビッグブリッヂの死闘シアトリズムffacarrangefromffv", "ビッグブリッヂの死闘シアトリズムffacarrangefromffv"],
+
   ["献身paradoxofchoice", "献身paradoxofchoice"],
   ["献身", "献身paradoxofchoice"]
 ]);
@@ -37,7 +37,6 @@ const $ = (id) => document.getElementById(id);
 $("analyzeBtn").addEventListener("click", analyze);
 $("downloadResultBtn").addEventListener("click", () => {
   if (lastRecommendations.length === 0) return;
-
   const rows = [
     ["排名", "推薦區間", "歌名", "難度", "譜面定數", "推薦分數", "主分類", "副分類", "技巧標籤", "玩家已有成績", "目標成績", "推薦理由"],
     ...lastRecommendations.map((r, i) => [
@@ -55,7 +54,6 @@ $("downloadResultBtn").addEventListener("click", () => {
       r.reason
     ])
   ];
-
   downloadCsv(rows, "chunithm_recommendations.csv");
 });
 
@@ -85,7 +83,7 @@ async function analyze() {
       alert(message);
       return;
     }
-
+    
     const scoreText = await readFileText(scoreFile);
     const scoreRows = normalizeScoreRows(parseCsv(scoreText));
 
@@ -118,7 +116,7 @@ function getSettings() {
     sampleSize: readNumber("sampleSize", 50),
     scoreThreshold: readNumber("scoreThreshold", 1006000),
     ratingOffset: 2.1,
-    mainCount: readNumber("recommendCount", 50),
+    recommendCount: readNumber("recommendCount", 50),
     challengeCount: readNumber("challengeCount", 15),
     targetPushConstant: readOptionalNumber("targetPushConstant"),
     challengeMinConstant: readOptionalNumber("challengeMinConstant"),
@@ -126,35 +124,30 @@ function getSettings() {
   };
 }
 
-function normalizeTypeName(type) {
-  const cleaned = cleanText(type);
-  return TYPE_ALIASES.get(cleaned) || cleaned;
-}
-
 function validateConstantInputs(settings) {
   const errors = [];
 
   if (settings.sampleSize < 30 || settings.sampleSize > 70) {
     errors.push(
-      "分析樣本數輸入錯誤：請設定在 30～70 之間，目前是 " + settings.sampleSize + "。"
+      `分析樣本數輸入錯誤：請設定在 30～70 之間，目前是 ${settings.sampleSize}。`
     );
   }
 
   if (settings.scoreThreshold < 1005000 || settings.scoreThreshold > 1008500) {
     errors.push(
-      "有效成績門檻輸入錯誤：請設定在 1,005,000～1,008,500 之間，目前是 " + settings.scoreThreshold.toLocaleString() + "。"
+      `有效成績門檻輸入錯誤：請設定在 1,005,000～1,008,500 之間，目前是 ${settings.scoreThreshold.toLocaleString()}。`
     );
   }
 
   if (settings.mainCount < 20 || settings.mainCount > 100) {
     errors.push(
-      "主推推薦數量輸入錯誤：請設定在 20～100 之間，目前是 " + settings.mainCount + "。"
+      `主推推薦數量輸入錯誤：請設定在 20～100 之間，目前是 ${settings.mainCount}。`
     );
   }
 
   if (settings.challengeCount < 0 || settings.challengeCount > 50) {
     errors.push(
-      "挑戰推薦數量輸入錯誤：請設定在 0～50 之間，目前是 " + settings.challengeCount + "。"
+      `挑戰推薦數量輸入錯誤：請設定在 0～50 之間，目前是 ${settings.challengeCount}。`
     );
   }
 
@@ -164,14 +157,11 @@ function validateConstantInputs(settings) {
     ["挑戰定數上限", settings.challengeMaxConstant]
   ];
 
-  for (const item of items) {
-    const label = item[0];
-    const value = item[1];
-
+  for (const [label, value] of items) {
     if (value == null) continue;
 
     if (value < 1 || value > 15.7) {
-      errors.push(label + " 輸入錯誤：請輸入 1.0～15.7 之間的數字，目前是 " + value.toFixed(1) + "。");
+      errors.push(`${label} 輸入錯誤：請輸入 1.0～15.7 之間的數字，目前是 ${value.toFixed(1)}。`);
     }
   }
 
@@ -190,25 +180,22 @@ function validateRecommendationCapacity(mainCandidates, challengeCandidates, set
   const errors = [];
 
   if (settings.mainCount > mainCandidates.length) {
-    const suggested = Math.floor(mainCandidates.length / 1.5);
-    const suggestionText = suggested >= 20
-      ? "建議把主推推薦數量調到 " + suggested + " 左右，或放寬目標推分定數 / 分數門檻。"
-      : "目前主推可推薦歌曲不足 20 首，建議先放寬目標推分定數 / 分數門檻；若只是想測試，可暫時把主推推薦數量調到 " + Math.max(0, suggested) + " 左右。";
+    const suggested = Math.max(20, Math.floor(mainCandidates.length / 1.5));
 
     errors.push(
-      "主推推薦數量超過可推薦歌曲數。\n" +
-      "目前主推可推薦歌曲只有 " + mainCandidates.length + " 首，但你要求輸出 " + settings.mainCount + " 首。\n" +
-      suggestionText
+      `主推推薦數量超過可推薦歌曲數。\n` +
+      `目前主推可推薦歌曲只有 ${mainCandidates.length} 首，但你要求輸出 ${settings.mainCount} 首。\n` +
+      `建議把主推推薦數量調到 ${suggested} 左右，或放寬目標推分定數 / 分數門檻。`
     );
   }
 
   if (settings.challengeCount > challengeCandidates.length) {
-    const suggested = Math.floor(challengeCandidates.length / 1.5);
+    const suggested = Math.max(0, Math.floor(challengeCandidates.length / 1.5));
 
     errors.push(
-      "挑戰推薦數量超過可推薦歌曲數。\n" +
-      "目前挑戰可推薦歌曲只有 " + challengeCandidates.length + " 首，但你要求輸出 " + settings.challengeCount + " 首。\n" +
-      "建議把挑戰推薦數量調到 " + Math.max(0, suggested) + " 左右，或放寬挑戰定數範圍。"
+      `挑戰推薦數量超過可推薦歌曲數。\n` +
+      `目前挑戰可推薦歌曲只有 ${challengeCandidates.length} 首，但你要求輸出 ${settings.challengeCount} 首。\n` +
+      `建議把挑戰推薦數量調到 ${suggested} 左右，或放寬挑戰定數範圍。`
     );
   }
 
@@ -225,6 +212,7 @@ function readOptionalNumber(id) {
   const value = Number(raw);
   if (!Number.isFinite(value)) return null;
 
+  // 無條件捨去到小數點後一位：15.34 → 15.3
   const floored = Math.floor(value * 10) / 10;
 
   input.value = floored.toFixed(1);
@@ -369,17 +357,14 @@ function normalizeChartRows(rows) {
     const song = row["歌名"] || "";
     const difficulty = normalizeDifficulty(row["難度"] || "");
     const constant = toNumber(row["譜面定數"] || row["定數"]);
-    const mainType = normalizeTypeName(row["主分類"] || "");
-    const subTypes = splitLabels(row["副分類"] || "").map(normalizeTypeName);
-
     return {
       song: cleanText(song),
       normSong: normalizeSongName(song),
       difficulty,
       constant,
-      mainType,
-      subTypesText: subTypes.join("、"),
-      subTypes,
+      mainType: cleanText(row["主分類"] || ""),
+      subTypesText: cleanText(row["副分類"] || ""),
+      subTypes: splitLabels(row["副分類"] || ""),
       skillTags: cleanText(row["技巧標籤"] || ""),
       uncertainty: cleanText(row["不確定度"] || ""),
       note: cleanText(row["備註"] || "")
@@ -406,7 +391,7 @@ function runAnalysis(scoreRows, chartRows, settings) {
   const targetPushConstant = settings.targetPushConstant == null
     ? null
     : roundToOne(settings.targetPushConstant);
-
+  
   if (
     targetPushConstant != null &&
     targetPushConstant >= roundToOne(autoTargetPushConstant + 0.2)
@@ -417,7 +402,7 @@ function runAnalysis(scoreRows, chartRows, settings) {
       `按「確定」：回到原畫面重新輸入。\n` +
       `按「取消」：維持目前設定並繼續分析。`
     );
-
+  
     if (ok) {
       throw new Error("已取消分析，請重新設定目標推分定數或挑戰定數範圍。");
     }
@@ -446,18 +431,18 @@ function runAnalysis(scoreRows, chartRows, settings) {
       `目前最低推分定數是 ${minUsefulConstant.toFixed(1)}，你輸入的是 ${targetPushConstant.toFixed(1)}。`
     );
   }
-
+  
   if (challengeMinConstant < comfortConstant || challengeMaxConstant < comfortConstant) {
     throw new Error(
       `挑戰定數不可小於舒適定數。\n` +
       `目前舒適定數是 ${comfortConstant.toFixed(1)}，請把挑戰定數範圍設定在 ${comfortConstant.toFixed(1)} 以上。`
     );
   }
-
+  
   if (challengeMinConstant < minUsefulConstant) {
     challengeMinConstant = minUsefulConstant;
   }
-
+  
   if (challengeMaxConstant < challengeMinConstant) {
     throw new Error("挑戰定數下限不能大於挑戰定數上限。");
   }
@@ -500,7 +485,7 @@ function runAnalysis(scoreRows, chartRows, settings) {
       const risk = calculateRiskPenalty(chart, typeStats);
       const playerRecord = findPlayerRecordForChart(chart, playerRecordIndex);
       const provenBonus = calculateProvenPerformanceBonus(playerRecord, all30Rating);
-
+      
       const recommendZone = (
         chart.constant >= challengeMinConstant &&
         chart.constant <= challengeMaxConstant
@@ -535,10 +520,10 @@ function runAnalysis(scoreRows, chartRows, settings) {
           risk
         ));
       }
-
+      
       const targetScore = calculateRequiredScoreForRating(chart.constant, all30Rating);
       const reason = buildReason(chart, typeMatch, recommendZone, playerRecord);
-
+      
       return {
         ...chart,
         recommendScore,
@@ -552,29 +537,29 @@ function runAnalysis(scoreRows, chartRows, settings) {
       };
     });
 
-  const mainCandidates = scoredCharts
-    .filter(r => r.recommendZone === "主推")
-    .sort((a, b) => b.recommendScore - a.recommendScore);
-
-  const challengeCandidates = scoredCharts
-    .filter(r => r.recommendZone === "挑戰");
-
-  const capacityErrors = validateRecommendationCapacity(
-    mainCandidates,
-    challengeCandidates,
-    settings
-  );
-
-  if (capacityErrors.length > 0) {
-    throw new Error(capacityErrors.join("\n\n"));
-  }
-
-  const mainRecommendations = mainCandidates.slice(0, settings.mainCount);
-
-  const challengeRecommendations = pickBalancedChallengeRecommendations(
-    challengeCandidates,
-    settings.challengeCount
-  );
+    const mainCandidates = scoredCharts
+      .filter(r => r.recommendZone === "主推")
+      .sort((a, b) => b.recommendScore - a.recommendScore);
+    
+    const challengeCandidates = scoredCharts
+      .filter(r => r.recommendZone === "挑戰");
+    
+    const capacityErrors = validateRecommendationCapacity(
+      mainCandidates,
+      challengeCandidates,
+      settings
+    );
+    
+    if (capacityErrors.length > 0) {
+      throw new Error(capacityErrors.join("\n\n"));
+    }
+    
+    const mainRecommendations = mainCandidates.slice(0, settings.mainCount);
+    
+    const challengeRecommendations = pickBalancedChallengeRecommendations(
+      challengeCandidates,
+      settings.challengeCount
+    );
 
   const recommendations = [...mainRecommendations, ...challengeRecommendations];
 
@@ -631,6 +616,7 @@ function pickBalancedChallengeRecommendations(charts, totalCount) {
   const picked = [];
   const pickedKeys = new Set();
 
+  // 第一輪：每個定數最多拿 maxPerConstant 首，避免某一個定數洗版
   for (const c of constants) {
     const group = groups.get(c).slice(0, maxPerConstant);
 
@@ -643,6 +629,7 @@ function pickBalancedChallengeRecommendations(charts, totalCount) {
     }
   }
 
+  // 第二輪：如果數量不夠，再用總分最高的補滿
   if (picked.length < totalCount) {
     const rest = [...charts].sort((a, b) => b.recommendScore - a.recommendScore);
 
@@ -680,7 +667,18 @@ function calculateComfortConstant(sortedScores, settings) {
 
 function calculateProgressionFit(constant, targetConstant) {
   const distance = Math.abs(roundToOne(constant) - roundToOne(targetConstant));
+
+  // 原本是 0.3，太窄，導致差 0.3 以上都變 0。
+  // 現在改成 0.6：
+  // 差 0.0 → 1
+  // 差 0.2 → 約 0.67
+  // 差 0.4 → 約 0.33
+  // 差 0.6 以上 → 0
   return clamp(1 - distance / 0.6, 0, 1);
+}
+
+function isInRange(value, min, max) {
+  return Number.isFinite(value) && value >= min && value <= max;
 }
 
 function updateAutoPlaceholders(values) {
@@ -699,6 +697,44 @@ function updateAutoPlaceholders(values) {
   if (challengeMaxInput && challengeMaxInput.value === "") {
     challengeMaxInput.placeholder = `自動 ${roundToOne(values.challengeMaxConstant).toFixed(1)}`;
   }
+}
+
+function fillAutoConstantInput(id, value) {
+  const input = $(id);
+  if (!input) return;
+
+  if (input.value === "") {
+    input.value = roundToOne(value).toFixed(1);
+  }
+}
+
+function calculateStableUpperConstant(sortedScores, all30Rating) {
+  const threshold = 1005000;
+  const minCount = 3;
+
+  const eligible = sortedScores
+    .filter(r => Number.isFinite(r.constant) && r.score >= threshold)
+    .map(r => ({
+      constant: roundToOne(r.constant),
+      song: r.song,
+      score: r.score
+    }));
+
+  if (eligible.length < minCount) {
+    return roundToOne(all30Rating - 1.5);
+  }
+
+  const candidateConstants = [...new Set(eligible.map(r => r.constant))]
+    .sort((a, b) => b - a);
+
+  for (const c of candidateConstants) {
+    const count = eligible.filter(r => r.constant >= c).length;
+    if (count >= minCount) {
+      return c;
+    }
+  }
+
+  return roundToOne(all30Rating - 1.5);
 }
 
 function buildChartIndex(chartRows) {
@@ -798,11 +834,15 @@ function calculateTypeStats(selectedWithCharts, all30Rating) {
   for (const item of selectedWithCharts) {
     const { score, chart } = item;
     const weights = getTypeWeights(chart);
+    const scoreNorm = clamp((score.score - 1006000) / 4000, 0, 1);
+    const ratingDiffScore = clamp(((score.rating - all30Rating) + 0.3) / 0.6, 0, 1);
 
     for (const [type, weight] of Object.entries(weights)) {
       if (!stats.has(type)) {
         stats.set(type, {
           type,
+          weightedScoreNormSum: 0,
+          weightedRatingDiffScoreSum: 0,
           weightedScoreSum: 0,
           weightedRatingSum: 0,
           weightSum: 0,
@@ -811,23 +851,31 @@ function calculateTypeStats(selectedWithCharts, all30Rating) {
       }
 
       const s = stats.get(type);
+      s.weightedScoreNormSum += scoreNorm * weight;
+      s.weightedRatingDiffScoreSum += ratingDiffScore * weight;
       s.weightedScoreSum += score.score * weight;
       s.weightedRatingSum += score.rating * weight;
       s.weightSum += weight;
 
       const songKey = `${chart.difficulty}|${chart.song}`;
-      if (!s.songs.has(songKey)) {
-        s.songs.set(songKey, { song: chart.song, rating: score.rating });
-      }
+      if (!s.songs.has(songKey)) s.songs.set(songKey, { song: chart.song, rating: score.rating });
     }
   }
 
-  const rawTypeStats = [...stats.values()].map(s => {
+  const result = [...stats.values()].map(s => {
     const count = s.songs.size;
+    const avgScoreNorm = safeDiv(s.weightedScoreNormSum, s.weightSum);
+    const avgRatingDiffScore = safeDiv(s.weightedRatingDiffScoreSum, s.weightSum);
+    const confidence = Math.min(count / 5, 1);
+    const typeScore = avgScoreNorm * 45 + avgRatingDiffScore * 40 + confidence * 15;
 
     return {
       ...s,
       count,
+      avgScoreNorm,
+      avgRatingDiffScore,
+      confidence,
+      typeScore,
       avgScore: safeDiv(s.weightedScoreSum, s.weightSum),
       avgRating: safeDiv(s.weightedRatingSum, s.weightSum),
       representativeSongs: [...s.songs.values()]
@@ -835,32 +883,18 @@ function calculateTypeStats(selectedWithCharts, all30Rating) {
         .slice(0, 4)
         .map(x => x.song)
     };
-  });
+  }).sort((a, b) => b.typeScore - a.typeScore);
 
-  if (rawTypeStats.length === 0) return [];
-
-  const globalAvgScore = rawTypeStats.reduce((sum, s) => sum + s.avgScore, 0) / rawTypeStats.length;
-  const globalAvgRating = rawTypeStats.reduce((sum, s) => sum + s.avgRating, 0) / rawTypeStats.length;
-  const maxCount = Math.max(...rawTypeStats.map(s => s.count));
-
-  const typeStats = rawTypeStats
-    .map(s => ({
-      ...s,
-      typeScore: calculateTypeScore(s, globalAvgScore, globalAvgRating, maxCount),
-      confidence: calculateTypeConfidence(s.count)
-    }))
-    .sort((a, b) => b.typeScore - a.typeScore);
-
-  return typeStats;
+  return result;
 }
 
 function getTypeWeights(chart) {
   const weights = {};
-  const main = normalizeTypeName(chart.mainType);
+  const main = cleanText(chart.mainType);
   const mainValid = main && !EXCLUDED_TYPES.has(main);
 
-  const validSubTypes = (chart.subTypes || [])
-    .map(normalizeTypeName)
+  const validSubTypes = chart.subTypes
+    .map(cleanText)
     .filter(t => t && !EXCLUDED_TYPES.has(t));
 
   if (mainValid) {
@@ -869,17 +903,14 @@ function getTypeWeights(chart) {
       const w = 1 / validSubTypes.length;
       for (const t of validSubTypes) weights[t] = (weights[t] || 0) + w;
     }
-  } else if (validSubTypes.length > 0) {
-    const w = 2 / validSubTypes.length;
-    for (const t of validSubTypes) weights[t] = (weights[t] || 0) + w;
+  } else {
+    if (validSubTypes.length > 0) {
+      const w = 2 / validSubTypes.length;
+      for (const t of validSubTypes) weights[t] = (weights[t] || 0) + w;
+    }
   }
 
   return weights;
-}
-
-function calculateTypeConfidence(count) {
-  if (!Number.isFinite(count) || count <= 0) return 0;
-  return clamp((count - 8) / 32, 0, 1);
 }
 
 function calculateChartTypeMatch(chart, typeStats) {
@@ -915,7 +946,7 @@ function calculateRiskPenalty(chart, typeStats) {
   const statMap = new Map(typeStats.map(s => [s.type, s]));
   let risk = 0;
 
-  const main = normalizeTypeName(chart.mainType);
+  const main = cleanText(chart.mainType);
   if (main && !EXCLUDED_TYPES.has(main)) {
     const mainStat = statMap.get(main);
     if (mainStat && mainStat.typeScore < 35) risk += 8;
@@ -1024,35 +1055,6 @@ function renderTypeTable(typeStats) {
   `).join("");
 }
 
-function calculateTypeScore(stat, globalAvgScore, globalAvgRating, maxCount) {
-  if (!stat || stat.count <= 0) return 0;
-
-  const avgScore = Number.isFinite(stat.avgScore) ? stat.avgScore : 0;
-  const avgRating = Number.isFinite(stat.avgRating) ? stat.avgRating : 0;
-  const count = Number.isFinite(stat.count) ? stat.count : 0;
-
-  const scorePart = clamp(50 + ((avgScore - globalAvgScore) / 1000) * 4, 0, 100);
-  const ratingPart = clamp(50 + ((avgRating - globalAvgRating) / 0.05) * 7, 0, 100);
-  const countPart = clamp((count - 8) / 32, 0, 1) * 100;
-  const relativeCountPart = maxCount > 0
-    ? clamp(Math.sqrt(count / maxCount), 0, 1) * 100
-    : 0;
-
-  let finalScore =
-    countPart * 0.40 +
-    ratingPart * 0.30 +
-    scorePart * 0.15 +
-    relativeCountPart * 0.15;
-
-  if (count < 10) {
-    finalScore *= 0.92;
-  } else if (count < 18) {
-    finalScore *= 0.96;
-  }
-
-  return finalScore;
-}
-
 function calculateTypeDeviations(typeStats) {
   const statMap = new Map((typeStats || []).map(s => [s.type, s]));
 
@@ -1122,6 +1124,7 @@ function calculateTypeDeviations(typeStats) {
     };
   });
 }
+  
 
 function renderTypeRadar(typeStats) {
   const svg = $("typeRadar");
@@ -1135,6 +1138,8 @@ function renderTypeRadar(typeStats) {
     return;
   }
 
+  const width = 720;
+  const height = 560;
   const cx = 360;
   const cy = 280;
   const maxRadius = 190;
@@ -1145,28 +1150,31 @@ function renderTypeRadar(typeStats) {
     return -Math.PI / 2 + (Math.PI * 2 * i) / n;
   }
 
-  function pointAtGrid(i, value) {
-    const angle = angleAt(i);
-    const radius = (value / maxValue) * maxRadius;
+function pointAtGrid(i, value) {
+  const angle = angleAt(i);
+  const radius = (value / maxValue) * maxRadius;
 
-    return {
-      x: cx + Math.cos(angle) * radius,
-      y: cy + Math.sin(angle) * radius
-    };
-  }
+  return {
+    x: cx + Math.cos(angle) * radius,
+    y: cy + Math.sin(angle) * radius
+  };
+}
 
-  function pointAtData(i, value) {
-    const angle = angleAt(i);
-    const visualMin = 0.5;
-    const visualMax = 4.5;
-    const visualValue = visualMin + (value / maxValue) * (visualMax - visualMin);
-    const radius = (visualValue / maxValue) * maxRadius;
+function pointAtData(i, value) {
+  const angle = angleAt(i);
 
-    return {
-      x: cx + Math.cos(angle) * radius,
-      y: cy + Math.sin(angle) * radius
-    };
-  }
+  // 分數仍然是 0～5，但畫資料時保留內外邊界。
+  // 0 會畫在 0.5 的半徑，5 會畫在 4.5 的半徑。
+  const visualMin = 0.5;
+  const visualMax = 4.5;
+  const visualValue = visualMin + (value / maxValue) * (visualMax - visualMin);
+  const radius = (visualValue / maxValue) * maxRadius;
+
+  return {
+    x: cx + Math.cos(angle) * radius,
+    y: cy + Math.sin(angle) * radius
+  };
+}
 
   function ringPoints(value) {
     return data.map((_, i) => {
@@ -1260,6 +1268,7 @@ function calculateProvenPerformanceBonus(record, all30Rating) {
 
   let bonus = 0;
 
+  // 已有成績只做小補正，避免單曲特例或代打影響整體推薦。
   if (record.score >= 1006000) {
     bonus += 2;
   } else if (record.score >= 1005000) {
@@ -1268,6 +1277,7 @@ function calculateProvenPerformanceBonus(record, all30Rating) {
     bonus += 0.5;
   }
 
+  // 已經接近 All30，代表這首至少有推分潛力，但仍只給小補正。
   if (Number.isFinite(record.rating) && Number.isFinite(all30Rating)) {
     if (record.rating >= all30Rating) {
       bonus += 1;
@@ -1286,21 +1296,33 @@ function calculateRequiredScoreForRating(constant, targetRating) {
 
   const diff = targetRating - constant;
 
+  // Rating 不可能靠這首推到這麼低，理論上打到 S 以下就夠，但本工具只回傳 S 以上範圍
   if (diff <= 0) return 975000;
 
   let score = null;
 
+  // S：975000 ～ 989999，rating 約 constant ～ constant + 0.5
   if (diff <= 0.5) {
     score = 975000 + diff / 0.5 * 15000;
-  } else if (diff <= 1.0) {
+  }
+  // S+：990000 ～ 999999，rating 約 constant + 0.5 ～ constant + 1.0
+  else if (diff <= 1.0) {
     score = 990000 + (diff - 0.5) / 0.5 * 10000;
-  } else if (diff <= 1.5) {
+  }
+  // SS：1000000 ～ 1004999，rating 約 constant + 1.0 ～ constant + 1.5
+  else if (diff <= 1.5) {
     score = 1000000 + (diff - 1.0) / 0.5 * 5000;
-  } else if (diff <= 2.0) {
+  }
+  // SS+：1005000 ～ 1007499，rating 約 constant + 1.5 ～ constant + 2.0
+  else if (diff <= 2.0) {
     score = 1005000 + (diff - 1.5) / 0.5 * 2500;
-  } else if (diff <= 2.15) {
+  }
+  // SSS：1007500 ～ 1008999，rating 約 constant + 2.0 ～ constant + 2.15
+  else if (diff <= 2.15) {
     score = 1007500 + (diff - 2.0) / 0.15 * 1500;
-  } else if (diff <= 2.30) {
+  }
+  // SSS+：1009000 ～ 1010000，rating 約 constant + 2.15 ～ constant + 2.30
+  else if (diff <= 2.30) {
     score = 1009000 + (diff - 2.15) / 0.15 * 1000;
   } else {
     return null;
