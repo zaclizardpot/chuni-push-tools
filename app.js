@@ -1,4 +1,4 @@
-const APP_VERSION = "v0.1.15";
+const APP_VERSION = "v0.1.15-re";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
@@ -131,7 +131,7 @@ function getSettings() {
     sampleSize: readNumber("sampleSize", 50),
     scoreThreshold: readNumber("scoreThreshold", 1006000),
     ratingOffset: 2.1,
-    recommendCount: readNumber("recommendCount", 50),
+    mainCount: readNumber("recommendCount", 50),
     challengeCount: readNumber("challengeCount", 15),
     targetPushConstant: readOptionalNumber("targetPushConstant"),
     challengeMinConstant: readOptionalNumber("challengeMinConstant"),
@@ -181,23 +181,27 @@ function getInputWarnings(settings) {
   if (settings.sampleSize < 30) {
     warnings.push(
       "分析樣本數偏低：目前是 " + settings.sampleSize + "。\n" +
+      "建議範圍：30～70。\n" +
       "可能後果：樣本太少時，分類適性容易被少數幾首歌影響，結果可能不夠穩定。"
     );
   } else if (settings.sampleSize > 70) {
     warnings.push(
       "分析樣本數偏高：目前是 " + settings.sampleSize + "。\n" +
+      "建議範圍：30～70。\n" +
       "可能後果：樣本太多時，可能混入較不代表目前推分能力的歌曲，使分類適性變得比較模糊。"
     );
   }
 
-  if (settings.scoreThreshold < 1005000) {
+  if (settings.scoreThreshold < 1005500) {
     warnings.push(
       "有效成績門檻偏低：目前是 " + settings.scoreThreshold.toLocaleString() + "。\n" +
+      "建議範圍：1,005,500～1,007,000。\n" +
       "可能後果：門檻太低時，會把還不夠穩定的歌曲也納入分析，推薦結果可能變得比較鬆。"
     );
-  } else if (settings.scoreThreshold > 1008500) {
+  } else if (settings.scoreThreshold > 1007000) {
     warnings.push(
       "有效成績門檻偏高：目前是 " + settings.scoreThreshold.toLocaleString() + "。\n" +
+      "建議範圍：1,005,500～1,007,000。\n" +
       "可能後果：門檻太高時，能納入分析的歌曲可能太少，分類適性可能被少數高分歌曲影響。"
     );
   }
@@ -205,23 +209,40 @@ function getInputWarnings(settings) {
   if (settings.mainCount < 20) {
     warnings.push(
       "主推推薦數量偏低：目前是 " + settings.mainCount + "。\n" +
+      "建議範圍：20～70。\n" +
       "可能後果：輸出歌曲太少時，可能漏掉一些也適合推分的候選歌曲。"
     );
-  } else if (settings.mainCount > 100) {
+  } else if (settings.mainCount > 70) {
     warnings.push(
       "主推推薦數量偏高：目前是 " + settings.mainCount + "。\n" +
+      "建議範圍：20～70。\n" +
       "可能後果：輸出歌曲太多時，後段可能混入適配度較低、參考價值較弱的歌曲。"
     );
   }
 
-  if (settings.challengeCount > 50) {
+  if (settings.challengeCount < 0) {
+    warnings.push(
+      "挑戰推薦數量偏低：目前是 " + settings.challengeCount + "。\n" +
+      "建議範圍：0～30。\n" +
+      "可能後果：挑戰推薦數量不應低於 0。"
+    );
+  } else if (settings.challengeCount > 30) {
     warnings.push(
       "挑戰推薦數量偏高：目前是 " + settings.challengeCount + "。\n" +
+      "建議範圍：0～30。\n" +
       "可能後果：挑戰歌曲輸出太多時，後段可能混入不太適合目前狀態的歌曲。"
     );
   }
 
   return warnings;
+}
+
+function isAlreadySSSPlus(record) {
+  if (!record) return false;
+
+  // CHUNITHM 中 1,009,000 以上為 SSS+。
+  // 已經 SSS+ 的歌曲通常已達該譜面主要推分上限，再推薦意義不大。
+  return Number.isFinite(record.score) && record.score >= 1009000;
 }
 
 function validateRecommendationCapacity(mainCandidates, challengeCandidates, settings) {
@@ -530,6 +551,10 @@ function runAnalysis(scoreRows, chartRows, settings) {
 
   const scoredCharts = usefulCharts
     .filter(chart => !excludedTopSongs.has(chart.normSong))
+    .filter(chart => {
+      const playerRecord = findPlayerRecordForChart(chart, playerRecordIndex);
+      return !isAlreadySSSPlus(playerRecord);
+    })
     .map(chart => {
       const typeMatch = calculateChartTypeMatch(chart, typeStats);
       const confidenceScore = typeMatch.confidence;
