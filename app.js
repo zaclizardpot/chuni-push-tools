@@ -1,4 +1,4 @@
-const APP_VERSION = "v0.1.15-re";
+const APP_VERSION = "v0.1.15-r";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
@@ -142,6 +142,14 @@ function getSettings() {
 function validateConstantInputs(settings) {
   const errors = [];
 
+  if (settings.scoreThreshold < 0 || settings.scoreThreshold > 1010000) {
+    errors.push(
+      "有效成績門檻輸入錯誤：分數必須在 0～1,010,000 之間，目前是 " +
+      settings.scoreThreshold.toLocaleString() +
+      "。"
+    );
+  }
+
   const items = [
     ["目標／舒適推分最頂定數", settings.targetPushConstant],
     ["挑戰定數下限", settings.challengeMinConstant],
@@ -192,13 +200,21 @@ function getInputWarnings(settings) {
     );
   }
 
-  if (settings.scoreThreshold < 1005500) {
+  if (
+    settings.scoreThreshold >= 0 &&
+    settings.scoreThreshold <= 1010000 &&
+    settings.scoreThreshold < 1005500
+  ) {
     warnings.push(
       "有效成績門檻偏低：目前是 " + settings.scoreThreshold.toLocaleString() + "。\n" +
       "建議範圍：1,005,500～1,007,000。\n" +
       "可能後果：門檻太低時，會把還不夠穩定的歌曲也納入分析，推薦結果可能變得比較鬆。"
     );
-  } else if (settings.scoreThreshold > 1007000) {
+  } else if (
+    settings.scoreThreshold >= 0 &&
+    settings.scoreThreshold <= 1010000 &&
+    settings.scoreThreshold > 1007000
+  ) {
     warnings.push(
       "有效成績門檻偏高：目前是 " + settings.scoreThreshold.toLocaleString() + "。\n" +
       "建議範圍：1,005,500～1,007,000。\n" +
