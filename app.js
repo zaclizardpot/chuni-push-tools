@@ -1,4 +1,4 @@
-const APP_VERSION = "v0.1.11-t";
+const APP_VERSION = "v0.1.12";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
@@ -986,7 +986,7 @@ function renderTypeTable(typeStats) {
       <td>${i + 1}</td>
       <td><strong>${escapeHtml(s.type)}</strong></td>
       <td class="score">${s.hasData ? s.typeScore.toFixed(1) : ""}</td>
-      <td class="${s.deviation >= 0 ? "good" : "bad"}">${s.deviation.toFixed(2)}</td>
+      <td>${s.hasData ? s.radarValue.toFixed(2) : "0.00"}</td>
       <td>${s.hasData && s.avgScore ? Math.round(s.avgScore).toLocaleString() : "-"}</td>
       <td>${s.hasData && s.avgRating ? s.avgRating.toFixed(2) : "-"}</td>
       <td>${s.count}</td>
@@ -1023,19 +1023,47 @@ function calculateTypeDeviations(typeStats) {
     };
   });
 
-  if (filled.length === 0) return [];
-
-  // 只有「有出現在玩家分表入選歌曲」的分類，才拿來算平均與全距
   const scored = filled.filter(s => s.hasData && Number.isFinite(s.typeScore));
 
   if (scored.length === 0) {
     return filled.map(s => ({
       ...s,
-      rawDeviation: 0,
-      deviation: 0
+      deviation: 0,
+      radarValue: 0
     }));
   }
 
+  const scores = scored.map(s => s.typeScore);
+  const maxScore = Math.max(...scores);
+  const minScore = Math.min(...scores);
+  const avgScore = scores.reduce((sum, v) => sum + v, 0) / scores.length;
+  const range = maxScore - minScore;
+
+  return filled.map(s => {
+    if (!s.hasData || !Number.isFinite(s.typeScore)) {
+      return {
+        ...s,
+        deviation: 0,
+        radarValue: 0
+      };
+    }
+
+    let radarValue = 2.5;
+
+    if (range > 0) {
+      radarValue = ((s.typeScore - minScore) / range) * 5;
+    }
+
+    const deviation = radarValue - 2.5;
+
+    return {
+      ...s,
+      rawDeviation: s.typeScore - avgScore,
+      deviation: clamp(deviation, -2.5, 2.5),
+      radarValue: clamp(radarValue, 0, 5)
+    };
+  });
+}
   const scores = scored.map(s => s.typeScore);
   const maxScore = Math.max(...scores);
   const minScore = Math.min(...scores);
@@ -1069,10 +1097,11 @@ function renderTypeRadar(typeStats) {
   const svg = $("typeRadar");
   if (!svg) return;
 
-  const data = calculateTypeDeviations(typeStats);
+  const allData = calculateTypeDeviations(typeStats);
+  const data = allData.filter(d => d.hasData);
 
   if (!data || data.length < 3) {
-    svg.innerHTML = `<text x="360" y="280" text-anchor="middle" class="radar-label">分類資料不足，無法繪製偏差圖</text>`;
+    svg.innerHTML = `<text x="360" y="280" text-anchor="middle" class="radar-label">有資料的分類少於 3 個，無法繪製多角圖</text>`;
     return;
   }
 
@@ -1080,21 +1109,17 @@ function renderTypeRadar(typeStats) {
   const height = 560;
   const cx = 360;
   const cy = 280;
-  const maxRadius = 185;
-  const maxAbs = 3;//多角圖的上下限
-  const zeroRadius = maxRadius * 0.5;
-
+  const maxRadius = 190;
+  const maxValue = 5;
   const n = data.length;
 
   function angleAt(i) {
     return -Math.PI / 2 + (Math.PI * 2 * i) / n;
   }
 
-  function pointAt(i, deviation) {
+  function pointAt(i, value) {
     const angle = angleAt(i);
-
-    // deviation -2.5～+2.5 映射到 0～maxRadius，中間 0 在 zeroRadius
-    const radius = ((deviation + maxAbs) / (maxAbs * 2)) * maxRadius;
+    const radius = (value / maxValue) * maxRadius;
 
     return {
       x: cx + Math.cos(angle) * radius,
@@ -1102,30 +1127,29 @@ function renderTypeRadar(typeStats) {
     };
   }
 
-  function ringPoints(deviation) {
+  function ringPoints(value) {
     return data.map((_, i) => {
-      const p = pointAt(i, deviation);
+      const p = pointAt(i, value);
       return `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
     }).join(" ");
   }
 
   const polygonPoints = data.map((d, i) => {
-    const p = pointAt(i, d.deviation);
+    const p = pointAt(i, d.radarValue);
     return `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
   }).join(" ");
 
-  const rings = [-3, -1.5, 0, 1.5, 3].map(v => {
-    const cls = v === 0 ? "radar-zero" : "radar-grid";
-    return `<polygon class="${cls}" points="${ringPoints(v)}"></polygon>`;
+  const rings = [1, 2, 3, 4, 5].map(v => {
+    return `<polygon class="radar-grid" points="${ringPoints(v)}"></polygon>`;
   }).join("");
 
   const axes = data.map((_, i) => {
-    const outer = pointAt(i, 2.5);
+    const outer = pointAt(i, 5);
     return `<line class="radar-axis" x1="${cx}" y1="${cy}" x2="${outer.x.toFixed(1)}" y2="${outer.y.toFixed(1)}"></line>`;
   }).join("");
 
   const points = data.map((d, i) => {
-    const p = pointAt(i, d.deviation);
+    const p = pointAt(i, d.radarValue);
     return `<circle class="radar-point" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4"></circle>`;
   }).join("");
 
@@ -1141,16 +1165,14 @@ function renderTypeRadar(typeStats) {
         ? "end"
         : "middle";
 
-    const valueY = y + 17;
-
     return `
       <text class="radar-label" x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="${anchor}">${escapeHtml(d.type)}</text>
-      <text class="radar-value" x="${x.toFixed(1)}" y="${valueY.toFixed(1)}" text-anchor="${anchor}">${d.deviation.toFixed(2)}</text>
+      <text class="radar-value" x="${x.toFixed(1)}" y="${(y + 17).toFixed(1)}" text-anchor="${anchor}">${d.radarValue.toFixed(2)}</text>
     `;
   }).join("");
 
   svg.innerHTML = `
-    <text x="24" y="34" class="radar-caption">分類偏差值：以所有有效分類的平均為 0，並依最高分與最低分的全距縮放到 -3.00 ～ +3.00。</text>
+    <text x="24" y="34" class="radar-caption">分類雷達圖：只顯示有資料的分類，依分類適性分數縮放到 0.00 ～ 5.00。</text>
     ${rings}
     ${axes}
     <polygon class="radar-polygon" points="${polygonPoints}"></polygon>
