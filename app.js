@@ -1,4 +1,4 @@
-const APP_VERSION = "v0.1.12";
+const APP_VERSION = "v0.1.12-re";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
@@ -1064,34 +1064,7 @@ function calculateTypeDeviations(typeStats) {
     };
   });
 }
-  const scores = scored.map(s => s.typeScore);
-  const maxScore = Math.max(...scores);
-  const minScore = Math.min(...scores);
-  const avgScore = scores.reduce((sum, v) => sum + v, 0) / scores.length;
-
-  const range = maxScore - minScore;
-  const scale = range > 0 ? range / 5 : 1;
-
-  return filled.map(s => {
-    // 沒有資料的分類不判斷強弱，偏差值固定 0
-    if (!s.hasData || !Number.isFinite(s.typeScore)) {
-      return {
-        ...s,
-        rawDeviation: 0,
-        deviation: 0
-      };
-    }
-
-    const rawDeviation = s.typeScore - avgScore;
-    const deviation = clamp(rawDeviation / scale, -2.5, 2.5);//分類偏差值的上下限
-
-    return {
-      ...s,
-      rawDeviation,
-      deviation
-    };
-  });
-}
+  
 
 function renderTypeRadar(typeStats) {
   const svg = $("typeRadar");
