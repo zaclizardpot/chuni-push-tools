@@ -1,4 +1,4 @@
-const APP_VERSION = "v0.1.15-r";
+const APP_VERSION = "v0.1.16";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
@@ -586,20 +586,28 @@ function runAnalysis(scoreRows, chartRows, settings) {
       let recommendScore;
 
       if (recommendZone === "主推") {
+        const mainConstantFit = calculateMainConstantFit(
+          chart.constant,
+          comfortConstant,
+          minUsefulConstant
+        );
+      
         if (targetPushConstant != null) {
           const targetFit = calculateProgressionFit(chart.constant, targetPushConstant);
-
+      
           recommendScore = Math.max(0, Math.min(100,
-            typeMatch.score * 62 +
-            confidenceScore * 13 +
-            targetFit * 20 +
+            typeMatch.score * 55 +
+            confidenceScore * 12 +
+            targetFit * 18 +
+            mainConstantFit * 12 +
             provenBonus -
             risk
           ));
         } else {
           recommendScore = Math.max(0, Math.min(100,
-            typeMatch.score * 75 +
-            confidenceScore * 17 +
+            typeMatch.score * 63 +
+            confidenceScore * 15 +
+            mainConstantFit * 17 +
             provenBonus -
             risk
           ));
@@ -767,6 +775,34 @@ function calculateProgressionFit(constant, targetConstant) {
   // 差 0.4 → 約 0.33
   // 差 0.6 以上 → 0
   return clamp(1 - distance / 0.6, 0, 1);
+}
+
+function calculateMainConstantFit(constant, comfortConstant, minUsefulConstant) {
+  if (!Number.isFinite(constant)) return 0;
+
+  const c = roundToOne(constant);
+  const comfort = roundToOne(comfortConstant);
+  const minUseful = roundToOne(minUsefulConstant);
+
+  // 舒適定數附近最適合主推。
+  if (c === comfort) return 1.00;
+
+  // 舒適定數 -0.1 或 +0.1 仍然很適合。
+  if (Math.abs(c - comfort) <= 0.1) return 0.92;
+
+  // 比舒適定數低 0.2，仍可推，但推分價值下降。
+  if (c === roundToOne(comfort - 0.2)) return 0.65;
+
+  // 比舒適定數低 0.3，通常偏保守，除非分類非常適合才值得。
+  if (c === roundToOne(comfort - 0.3)) return 0.40;
+
+  // 最低推分定數附近仍保留，但不能排太前面。
+  if (c >= minUseful && c < roundToOne(comfort - 0.3)) return 0.25;
+
+  // 高於舒適定數 0.2 以上，通常應該更接近挑戰，不當作主推核心。
+  if (c > roundToOne(comfort + 0.1)) return 0.55;
+
+  return 0.3;
 }
 
 function isInRange(value, min, max) {
