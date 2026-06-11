@@ -1,4 +1,4 @@
-const APP_VERSION = "v0.1.14";
+const APP_VERSION = "v0.1.15";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
@@ -84,6 +84,21 @@ async function analyze() {
       return;
     }
     
+    const inputWarnings = getInputWarnings(settings);
+    if (inputWarnings.length > 0) {
+      const message =
+        "以下設定不是錯誤，但可能影響推薦結果：\n\n" +
+        inputWarnings.join("\n\n") +
+        "\n\n仍要繼續分析嗎？";
+    
+      const ok = confirm(message);
+    
+      if (!ok) {
+        setStatus("已取消分析，請調整參數後再試。", "bad");
+        return;
+      }
+    }
+    
     const scoreText = await readFileText(scoreFile);
     const scoreRows = normalizeScoreRows(parseCsv(scoreText));
 
@@ -127,41 +142,25 @@ function getSettings() {
 function validateConstantInputs(settings) {
   const errors = [];
 
-  if (settings.sampleSize < 30 || settings.sampleSize > 70) {
-    errors.push(
-      `分析樣本數輸入錯誤：請設定在 30～70 之間，目前是 ${settings.sampleSize}。`
-    );
-  }
-
-  if (settings.scoreThreshold < 1005000 || settings.scoreThreshold > 1008500) {
-    errors.push(
-      `有效成績門檻輸入錯誤：請設定在 1,005,000～1,008,500 之間，目前是 ${settings.scoreThreshold.toLocaleString()}。`
-    );
-  }
-
-  if (settings.mainCount < 20 || settings.mainCount > 100) {
-    errors.push(
-      `主推推薦數量輸入錯誤：請設定在 20～100 之間，目前是 ${settings.mainCount}。`
-    );
-  }
-
-  if (settings.challengeCount < 0 || settings.challengeCount > 50) {
-    errors.push(
-      `挑戰推薦數量輸入錯誤：請設定在 0～50 之間，目前是 ${settings.challengeCount}。`
-    );
-  }
-
   const items = [
     ["目標／舒適推分最頂定數", settings.targetPushConstant],
     ["挑戰定數下限", settings.challengeMinConstant],
     ["挑戰定數上限", settings.challengeMaxConstant]
   ];
 
-  for (const [label, value] of items) {
+  for (const item of items) {
+    const label = item[0];
+    const value = item[1];
+
     if (value == null) continue;
 
     if (value < 1 || value > 15.7) {
-      errors.push(`${label} 輸入錯誤：請輸入 1.0～15.7 之間的數字，目前是 ${value.toFixed(1)}。`);
+      errors.push(
+        label +
+        " 輸入錯誤：請輸入 1.0～15.7 之間的數字，目前是 " +
+        value.toFixed(1) +
+        "。"
+      );
     }
   }
 
@@ -176,26 +175,78 @@ function validateConstantInputs(settings) {
   return errors;
 }
 
+function getInputWarnings(settings) {
+  const warnings = [];
+
+  if (settings.sampleSize < 30) {
+    warnings.push(
+      "分析樣本數偏低：目前是 " + settings.sampleSize + "。\n" +
+      "可能後果：樣本太少時，分類適性容易被少數幾首歌影響，結果可能不夠穩定。"
+    );
+  } else if (settings.sampleSize > 70) {
+    warnings.push(
+      "分析樣本數偏高：目前是 " + settings.sampleSize + "。\n" +
+      "可能後果：樣本太多時，可能混入較不代表目前推分能力的歌曲，使分類適性變得比較模糊。"
+    );
+  }
+
+  if (settings.scoreThreshold < 1005000) {
+    warnings.push(
+      "有效成績門檻偏低：目前是 " + settings.scoreThreshold.toLocaleString() + "。\n" +
+      "可能後果：門檻太低時，會把還不夠穩定的歌曲也納入分析，推薦結果可能變得比較鬆。"
+    );
+  } else if (settings.scoreThreshold > 1008500) {
+    warnings.push(
+      "有效成績門檻偏高：目前是 " + settings.scoreThreshold.toLocaleString() + "。\n" +
+      "可能後果：門檻太高時，能納入分析的歌曲可能太少，分類適性可能被少數高分歌曲影響。"
+    );
+  }
+
+  if (settings.mainCount < 20) {
+    warnings.push(
+      "主推推薦數量偏低：目前是 " + settings.mainCount + "。\n" +
+      "可能後果：輸出歌曲太少時，可能漏掉一些也適合推分的候選歌曲。"
+    );
+  } else if (settings.mainCount > 100) {
+    warnings.push(
+      "主推推薦數量偏高：目前是 " + settings.mainCount + "。\n" +
+      "可能後果：輸出歌曲太多時，後段可能混入適配度較低、參考價值較弱的歌曲。"
+    );
+  }
+
+  if (settings.challengeCount > 50) {
+    warnings.push(
+      "挑戰推薦數量偏高：目前是 " + settings.challengeCount + "。\n" +
+      "可能後果：挑戰歌曲輸出太多時，後段可能混入不太適合目前狀態的歌曲。"
+    );
+  }
+
+  return warnings;
+}
+
 function validateRecommendationCapacity(mainCandidates, challengeCandidates, settings) {
   const errors = [];
 
   if (settings.mainCount > mainCandidates.length) {
-    const suggested = Math.max(20, Math.floor(mainCandidates.length / 1.5));
+    const suggested = Math.floor(mainCandidates.length / 1.5);
+    const suggestionText = suggested >= 20
+      ? "建議把主推推薦數量調到 " + suggested + " 左右，或放寬目標推分定數 / 分數門檻。"
+      : "目前主推可推薦歌曲不足 20 首，建議先放寬目標推分定數 / 分數門檻；若只是想測試，可暫時把主推推薦數量調到 " + Math.max(0, suggested) + " 左右。";
 
     errors.push(
-      `主推推薦數量超過可推薦歌曲數。\n` +
-      `目前主推可推薦歌曲只有 ${mainCandidates.length} 首，但你要求輸出 ${settings.mainCount} 首。\n` +
-      `建議把主推推薦數量調到 ${suggested} 左右，或放寬目標推分定數 / 分數門檻。`
+      "主推推薦數量超過可推薦歌曲數。\n" +
+      "目前主推可推薦歌曲只有 " + mainCandidates.length + " 首，但你要求輸出 " + settings.mainCount + " 首。\n" +
+      suggestionText
     );
   }
 
   if (settings.challengeCount > challengeCandidates.length) {
-    const suggested = Math.max(0, Math.floor(challengeCandidates.length / 1.5));
+    const suggested = Math.floor(challengeCandidates.length / 1.5);
 
     errors.push(
-      `挑戰推薦數量超過可推薦歌曲數。\n` +
-      `目前挑戰可推薦歌曲只有 ${challengeCandidates.length} 首，但你要求輸出 ${settings.challengeCount} 首。\n` +
-      `建議把挑戰推薦數量調到 ${suggested} 左右，或放寬挑戰定數範圍。`
+      "挑戰推薦數量超過可推薦歌曲數。\n" +
+      "目前挑戰可推薦歌曲只有 " + challengeCandidates.length + " 首，但你要求輸出 " + settings.challengeCount + " 首。\n" +
+      "建議把挑戰推薦數量調到 " + Math.max(0, suggested) + " 左右，或放寬挑戰定數範圍。"
     );
   }
 
