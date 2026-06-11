@@ -1,4 +1,4 @@
-const APP_VERSION = "v0.1.13";
+const APP_VERSION = "v0.1.14";
 console.log("CHUNI PUSH TOOL", APP_VERSION);
 
 const DB_FILE = "./chart_database.csv";
@@ -76,10 +76,11 @@ async function analyze() {
 
     const settings = getSettings();
 
-    const validationMessage = validateConstantInputs(settings);
-    if (validationMessage) {
-      setStatus(validationMessage, "bad");
-      alert(validationMessage);
+    const validationErrors = validateConstantInputs(settings);
+    if (validationErrors.length > 0) {
+      const message = validationErrors.join("\n");
+      setStatus(message, "bad");
+      alert(message);
       return;
     }
     
@@ -104,7 +105,9 @@ async function analyze() {
     setStatus("分析完成。", "good");
   } catch (err) {
     console.error(err);
-    setStatus(`發生錯誤：${err.message}`, "bad");
+    const message = err?.message || String(err);
+    setStatus(`分析失敗：${message}`, "bad");
+    alert(`分析失敗：\n${message}`);
   }
 }
 
@@ -112,7 +115,7 @@ function getSettings() {
   return {
     sampleSize: readNumber("sampleSize", 50),
     scoreThreshold: readNumber("scoreThreshold", 1006000),
-    ratingOffset: readNumber("ratingOffset", 2.1),
+    ratingOffset: 2.1,
     recommendCount: readNumber("recommendCount", 50),
     challengeCount: readNumber("challengeCount", 15),
     targetPushConstant: readOptionalNumber("targetPushConstant"),
@@ -122,8 +125,34 @@ function getSettings() {
 }
 
 function validateConstantInputs(settings) {
+  const errors = [];
+
+  if (settings.sampleSize < 30 || settings.sampleSize > 70) {
+    errors.push(
+      `分析樣本數輸入錯誤：請設定在 30～70 之間，目前是 ${settings.sampleSize}。`
+    );
+  }
+
+  if (settings.scoreThreshold < 1005000 || settings.scoreThreshold > 1008500) {
+    errors.push(
+      `有效成績門檻輸入錯誤：請設定在 1,005,000～1,008,500 之間，目前是 ${settings.scoreThreshold.toLocaleString()}。`
+    );
+  }
+
+  if (settings.mainCount < 20 || settings.mainCount > 100) {
+    errors.push(
+      `主推推薦數量輸入錯誤：請設定在 20～100 之間，目前是 ${settings.mainCount}。`
+    );
+  }
+
+  if (settings.challengeCount < 0 || settings.challengeCount > 50) {
+    errors.push(
+      `挑戰推薦數量輸入錯誤：請設定在 0～50 之間，目前是 ${settings.challengeCount}。`
+    );
+  }
+
   const items = [
-    ["目標推分定數", settings.targetPushConstant],
+    ["目標／舒適推分最頂定數", settings.targetPushConstant],
     ["挑戰定數下限", settings.challengeMinConstant],
     ["挑戰定數上限", settings.challengeMaxConstant]
   ];
@@ -132,7 +161,7 @@ function validateConstantInputs(settings) {
     if (value == null) continue;
 
     if (value < 1 || value > 15.7) {
-      return `${label} 輸入錯誤：請輸入 1.0～15.7 之間的數字。`;
+      errors.push(`${label} 輸入錯誤：請輸入 1.0～15.7 之間的數字，目前是 ${value.toFixed(1)}。`);
     }
   }
 
@@ -141,10 +170,36 @@ function validateConstantInputs(settings) {
     settings.challengeMaxConstant != null &&
     settings.challengeMinConstant > settings.challengeMaxConstant
   ) {
-    return "挑戰定數下限不能大於挑戰定數上限。";
+    errors.push("挑戰定數下限不能大於挑戰定數上限。");
   }
 
-  return "";
+  return errors;
+}
+
+function validateRecommendationCapacity(mainCandidates, challengeCandidates, settings) {
+  const errors = [];
+
+  if (settings.mainCount > mainCandidates.length) {
+    const suggested = Math.max(20, Math.floor(mainCandidates.length / 1.5));
+
+    errors.push(
+      `主推推薦數量超過可推薦歌曲數。\n` +
+      `目前主推可推薦歌曲只有 ${mainCandidates.length} 首，但你要求輸出 ${settings.mainCount} 首。\n` +
+      `建議把主推推薦數量調到 ${suggested} 左右，或放寬目標推分定數 / 分數門檻。`
+    );
+  }
+
+  if (settings.challengeCount > challengeCandidates.length) {
+    const suggested = Math.max(0, Math.floor(challengeCandidates.length / 1.5));
+
+    errors.push(
+      `挑戰推薦數量超過可推薦歌曲數。\n` +
+      `目前挑戰可推薦歌曲只有 ${challengeCandidates.length} 首，但你要求輸出 ${settings.challengeCount} 首。\n` +
+      `建議把挑戰推薦數量調到 ${suggested} 左右，或放寬挑戰定數範圍。`
+    );
+  }
+
+  return errors;
 }
 
 function readOptionalNumber(id) {
@@ -482,24 +537,29 @@ function runAnalysis(scoreRows, chartRows, settings) {
       };
     });
 
-  const mainRecommendations = scoredCharts
-    .filter(r => r.recommendZone === "主推")
-    .sort((a, b) => {
-      const aInMainRange = isInRange(a.constant, mainRecommendMinConstant, mainRecommendMaxConstant);
-      const bInMainRange = isInRange(b.constant, mainRecommendMinConstant, mainRecommendMaxConstant);
-
-      if (aInMainRange !== bInMainRange) {
-        return aInMainRange ? -1 : 1;
-      }
-
-      return b.recommendScore - a.recommendScore;
-    })
-    .slice(0, settings.recommendCount);
-
-  const challengeRecommendations = pickBalancedChallengeRecommendations(
-    scoredCharts.filter(r => r.recommendZone === "挑戰"),
-    settings.challengeCount
-  );
+    const mainCandidates = scoredCharts
+      .filter(r => r.recommendZone === "主推")
+      .sort((a, b) => b.recommendScore - a.recommendScore);
+    
+    const challengeCandidates = scoredCharts
+      .filter(r => r.recommendZone === "挑戰");
+    
+    const capacityErrors = validateRecommendationCapacity(
+      mainCandidates,
+      challengeCandidates,
+      settings
+    );
+    
+    if (capacityErrors.length > 0) {
+      throw new Error(capacityErrors.join("\n\n"));
+    }
+    
+    const mainRecommendations = mainCandidates.slice(0, settings.mainCount);
+    
+    const challengeRecommendations = pickBalancedChallengeRecommendations(
+      challengeCandidates,
+      settings.challengeCount
+    );
 
   const recommendations = [...mainRecommendations, ...challengeRecommendations];
 
